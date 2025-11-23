@@ -78,7 +78,7 @@ const Login = () => {
             <Typo fontWeight={"700"} color={colors.background} size={21}>
               Login
             </Typo>
-          </Button>
+          </Button>  
         </View>
         <View style={styles.footer}>
           <Typo size={15} color={colors.text}>
