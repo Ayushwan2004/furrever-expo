@@ -231,4 +231,4 @@ const styles = StyleSheet.create({
     emptyState: { padding: 50, alignItems: 'center', justifyContent: 'center' },
 });
 
-export default UserAnalyticsModal;
+export default React.memo(UserAnalyticsModal);

@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import React, { useRef } from "react";
+import React, { useRef, useCallback, memo } from "react";
 import * as Haptics from 'expo-haptics';
 import { CustomButtonProps } from "@/types";
 import { colors, radius } from "@/constants/themes";
@@ -14,8 +14,7 @@ const Button = ({
 }: CustomButtonProps) => {
   const busyLock = useRef(false);
 
-  const handlePress = () => {
-    // Safety check: Ensure onPress exists and button isn't busy/loading
+  const handlePress = useCallback(() => {
     if (loading || busyLock.current || !onPress) return;
     
     busyLock.current = true;
@@ -23,11 +22,10 @@ const Button = ({
     
     onPress();
 
-    // Unlock after transition
     setTimeout(() => {
       busyLock.current = false;
     }, 600);
-  };
+  }, [loading, onPress]);
 
   if (loading) {
     return (
@@ -52,7 +50,7 @@ const Button = ({
   );
 };
 
-export default Button;
+export default memo(Button);
 
 const styles = StyleSheet.create({
   button: {

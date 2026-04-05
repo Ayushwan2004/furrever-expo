@@ -1,5 +1,5 @@
 import { StyleSheet, TextInput, View } from "react-native";
-import React from "react";
+import React,{memo} from "react";
 import { InputProps } from "@/types";
 import { colors, radius, spacingX } from "@/constants/themes";
 import { verticalScale } from "@/utils/styling";
@@ -9,7 +9,7 @@ const Input = ({
   inputStyle,
   inputRef,
   icon,
-  ...textInputProps // ✅ only pass valid TextInput props
+  ...textInputProps 
 }: InputProps) => {
   return (
     <View style={[styles.container, containerStyle]}>
@@ -24,7 +24,7 @@ const Input = ({
   );
 };
 
-export default Input;
+export default memo(Input);
 
 const styles = StyleSheet.create({
   container: {

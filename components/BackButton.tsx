@@ -1,5 +1,5 @@
 import { StyleSheet, TouchableOpacity } from 'react-native'
-import React, { useRef } from 'react'
+import React, { useRef, useCallback, memo } from 'react'
 import { BackButtonProps } from '@/types'
 import { useRouter } from 'expo-router'
 import { CaretLeft } from 'phosphor-react-native'
@@ -14,7 +14,7 @@ const BackButton = ({
     const router = useRouter();
     const isBusy = useRef(false);
 
-    const handleBack = () => {
+    const handleBack = useCallback(() => {
         if (isBusy.current) return;
         
         isBusy.current = true;
@@ -27,7 +27,7 @@ const BackButton = ({
         setTimeout(() => {
             isBusy.current = false;
         }, 500);
-    };
+    }, [router]);
 
     return (
         <TouchableOpacity 
@@ -44,7 +44,7 @@ const BackButton = ({
     )
 }
 
-export default BackButton
+export default memo(BackButton);
 
 const styles = StyleSheet.create({
     button: { 

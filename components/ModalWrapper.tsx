@@ -1,5 +1,5 @@
 import { Platform, StyleSheet, Text, View } from 'react-native'
-import React from 'react'
+import React,{memo} from 'react'
 import { colors, spacingY } from '@/constants/themes'
 import { ModalWrapperProps } from '@/types'
 
@@ -16,7 +16,7 @@ const ModalWrapper = ({
     )
 }
 
-export default ModalWrapper
+export default memo(ModalWrapper);
 
 const styles = StyleSheet.create({
     container:{

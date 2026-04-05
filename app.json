@@ -1,4 +1,3 @@
-
 {
   "expo": {
     "name": "FurrEver",
@@ -17,12 +16,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "",
-        "backgroundImage": "",
-        "monochromeImage": ""
-      },
       "package": "com.furrever.furreverexpo",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -33,18 +26,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
-        }
-      ],
       "expo-font",
       "expo-web-browser"
     ],

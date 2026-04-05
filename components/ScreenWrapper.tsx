@@ -1,6 +1,6 @@
 import { colors } from '@/constants/themes'
 import { ScreenWrapperProps } from '@/types'
-import React from 'react'
+import React,{memo} from 'react'
 import { Platform, StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -26,4 +26,4 @@ const ScreenWrapper = ({ style, children }: ScreenWrapperProps) => {
     )
 }
 
-export default ScreenWrapper
+export default memo(ScreenWrapper)

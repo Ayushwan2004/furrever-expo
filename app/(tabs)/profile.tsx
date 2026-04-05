@@ -63,7 +63,8 @@ const Profile = () => {
     <ScreenWrapper style={{ backgroundColor: colors.background }}><ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}><Header title="Profile" style={{ marginVertical: spacingY._10 }} /><View style={styles.userInfo}><Image source={getProfileImage(user?.image)} style={styles.avatar} contentFit="cover" transition={150} cachePolicy="memory-disk" /><View style={styles.nameContainer}><Typo size={24} fontWeight="800" color={colors.text}>{user?.name}</Typo><Typo size={15} fontWeight="600" color={colors.textLighter}>{user?.email}</Typo></View></View><View style={styles.accountOptions}>{accountOptions.map((item, index) => (<ProfileItem key={item.title} item={item} index={index} onPress={handleAction} />))}</View></ScrollView></ScreenWrapper>
   );
 };
-export default Profile;
+
+export default memo(Profile);
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: spacingX._20, paddingBottom: 100 },

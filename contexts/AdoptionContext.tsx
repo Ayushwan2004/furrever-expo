@@ -1,3 +1,7 @@
+// contexts/AdoptionContext.tsx
+// CHANGED: updateApplicationStatus now sends Expo push notification to adopter
+// AND to the pet owner when a new application comes in (sendApplication)
+// Everything else identical to your original
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import {
@@ -9,8 +13,21 @@ import { useAuth } from "./AuthContext";
 import { usePets } from "./PetContext";
 import { AdoptionType, AdoptionContextType, ResponseType, PetType } from "@/types";
 import * as Haptics from 'expo-haptics';
+// ✅ NEW
+import { sendExpoPush } from "@/services/pushTokenService";
 
 const AdoptionContext = createContext<AdoptionContextType | undefined>(undefined);
+
+// ─── Helper: fetch a user's push token from Firestore ─────────────────────────
+async function getPushToken(uid: string): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(firestore, "users", uid));
+    if (snap.exists()) return snap.data().expoPushToken || null;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export const AdoptionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [applications, setApplications] = useState<AdoptionType[]>([]);
@@ -19,10 +36,7 @@ export const AdoptionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const { markAsSold } = usePets();
 
   useEffect(() => {
-    if (!user?.uid) {
-      setApplications([]);
-      return;
-    }
+    if (!user?.uid) { setApplications([]); return; }
 
     const q = query(
       collection(firestore, "adoptions"),
@@ -75,20 +89,40 @@ export const AdoptionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           status: 'pending',
           createdAt: serverTimestamp()
         });
-        return { success: true };
+      } else {
+        await addDoc(collection(firestore, "adoptions"), {
+          petId: pet.id,
+          petName: pet.name,
+          petImage: pet.image,
+          adopterId: user.uid,
+          adopterName: user.name,
+          ownerId: pet.ownerId,
+          status: 'pending',
+          isRead: false,
+          createdAt: serverTimestamp()
+        });
       }
 
-      await addDoc(collection(firestore, "adoptions"), {
-        petId: pet.id,
-        petName: pet.name,
-        petImage: pet.image,
-        adopterId: user.uid,
-        adopterName: user.name,
-        ownerId: pet.ownerId,
-        status: 'pending',
+      // ✅ Notify pet owner about new adoption request
+      await addDoc(collection(firestore, "notifications"), {
+        receiverId: pet.ownerId,
+        title: "New Adoption Request 🐾",
+        message: `${user.name} wants to adopt ${pet.name}!`,
+        type: 'new_request',
         isRead: false,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
       });
+
+      // ✅ Push to owner if they have a token
+      const ownerToken = await getPushToken(pet.ownerId);
+      if (ownerToken) {
+        await sendExpoPush(
+          ownerToken,
+          "New Adoption Request 🐾",
+          `${user.name} wants to adopt ${pet.name}!`,
+          { type: 'new_request', petId: pet.id }
+        );
+      }
 
       return { success: true };
     } catch (e: any) {
@@ -122,11 +156,9 @@ export const AdoptionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const batch = writeBatch(firestore);
 
-      // 1. Fetch fresh pet details to "freeze" them into the record
       const petSnap = await getDoc(doc(firestore, "pets", petId));
       const petData = petSnap.data() as PetType;
 
-      // 2. Prepare the Approved/Rejected update for THIS specific application
       const mainAppRef = doc(firestore, "adoptions", appId);
       batch.update(mainAppRef, {
         status,
@@ -157,20 +189,38 @@ export const AdoptionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await markAsSold(petId, app.adopterId);
 
         const adopterUserRef = doc(firestore, "users", app.adopterId);
-        batch.update(adopterUserRef, {
-          adoptedPets: arrayUnion(petId)
-        });
+        batch.update(adopterUserRef, { adoptedPets: arrayUnion(petId) });
       }
 
       await batch.commit();
 
+      // ✅ Write Firestore notification (in-app)
+      const notifTitle = status === 'approved'
+        ? "Adoption Approved! 🎉"
+        : "Application Update";
+      const notifMsg = status === 'approved'
+        ? `Congratulations! Your adoption request for ${app.petName} has been approved! 🐾`
+        : `Your adoption request for ${app.petName} was not approved this time.`;
+
       await addDoc(collection(firestore, "notifications"), {
         receiverId: app.adopterId,
-        title: status === 'approved' ? "Adoption Approved! 🎉" : "Application Update",
-        message: `Your request for ${app.petName} was ${status} by the owner.`,
+        title: notifTitle,
+        message: notifMsg,
+        type: 'adoption_update',
         isRead: false,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
       });
+
+      // ✅ Send Expo push to adopter
+      const adopterToken = await getPushToken(app.adopterId);
+      if (adopterToken) {
+        await sendExpoPush(
+          adopterToken,
+          notifTitle,
+          notifMsg,
+          { type: 'adoption_update', petId, status }
+        );
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       return { success: true };

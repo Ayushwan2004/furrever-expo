@@ -1,5 +1,5 @@
 import { ActivityIndicator, ActivityIndicatorProps, StyleSheet, Text, View } from 'react-native'
-import React from 'react'
+import React,{memo} from 'react'
 import { colors } from '@/constants/themes'
 
 const Loading = ({
@@ -13,6 +13,6 @@ const Loading = ({
     )
 }
 
-export default Loading
+export default memo(Loading);
 
 const styles = StyleSheet.create({})

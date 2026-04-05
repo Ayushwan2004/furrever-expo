@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, memo } from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View, InteractionManager } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
@@ -70,7 +70,7 @@ const Welcome = () => {
   );
 };
 
-export default Welcome;
+export default memo(Welcome);
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: "space-between" },

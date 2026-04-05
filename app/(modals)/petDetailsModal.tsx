@@ -338,4 +338,4 @@ const styles = StyleSheet.create({
     checkBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.green, borderRadius: 10, padding: 2, borderWidth: 2, borderColor: 'white' }
 });
 
-export default PetDetailsModal;
+export default React.memo(PetDetailsModal);

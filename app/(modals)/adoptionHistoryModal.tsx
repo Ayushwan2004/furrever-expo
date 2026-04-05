@@ -203,4 +203,4 @@ const styles = StyleSheet.create({
     emptyCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.backgroundDark, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
 });
 
-export default AdoptionHistoryModal;
+export default React.memo(AdoptionHistoryModal);

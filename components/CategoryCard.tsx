@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState, useCallback } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Image } from "expo-image";
 import { CaretRight, CheckCircle, Clock, Heart, MapPin, PawPrint, Trash } from "phosphor-react-native";
@@ -29,14 +29,13 @@ const CategoryCard: React.FC<CategoryCardProps> = ({
   const isActionInProgress = useRef(false);
   const isOwner = pet.ownerId === user?.uid;
 
-  // Real-time ticker for time ago text
   const [ticker, setTicker] = useState(0);
   useEffect(() => {
     const interval = setInterval(() => setTicker(t => t + 1), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleFavorite = (e: any) => {
+  const handleFavorite = useCallback((e: any) => {
     e.stopPropagation();
     if (isActionInProgress.current) return;
     
@@ -44,9 +43,8 @@ const CategoryCard: React.FC<CategoryCardProps> = ({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onFavoritePress();
     
-    // Rate limit taps to 500ms
     setTimeout(() => { isActionInProgress.current = false; }, 500);
-  };
+  }, [onFavoritePress]);
 
   return (
     <TouchableOpacity 
@@ -119,6 +117,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({
 };
 
 export default memo(CategoryCard);
+
 
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.white, borderRadius: radius._20, marginVertical: spacingY._10, marginHorizontal: spacingX._15, elevation: 5, shadowColor: colors.black, shadowOpacity: 0.1, shadowRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: colors.backgroundDark },

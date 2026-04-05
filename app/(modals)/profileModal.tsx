@@ -213,7 +213,7 @@ const ProfileModal = () => {
   );
 };
 
-export default ProfileModal;
+export default React.memo(ProfileModal);
 
 const styles = StyleSheet.create({
   textCenter: { textAlign: 'center' },

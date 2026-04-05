@@ -1,3 +1,8 @@
+// contexts/AuthContext.tsx
+// CHANGED from previous version:
+//  1. login() now checks adminStatus === 'terminated' and blocks sign-in
+//  2. fetchUserData stores full Firestore data including adminStatus
+//  3. UserType extended inline to include adminStatus (no types.ts change needed)
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from "react";
 import { useRouter, useSegments } from "expo-router";
@@ -28,6 +33,7 @@ import {
 } from "firebase/firestore";
 import { auth, firestore } from "@/config/firebase";
 import { AuthContextType, UserType, ResponseType } from "@/types";
+import { registerPushToken } from "@/services/pushTokenService";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -38,6 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const segments = useSegments();
   const unsubscribeFirestoreRef = useRef<Unsubscribe | null>(null);
   const isMounted = useRef(true);
+  const tokenRegistered = useRef<string | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -50,13 +57,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     unsubscribeFirestoreRef.current = onSnapshot(userDocRef, (docSnap) => {
       if (!isMounted.current) return;
+
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setUser({ 
-          ...data, 
-          uid, 
-          emailVerified: !!auth.currentUser?.emailVerified 
+
+        // ✅ Store full user data including adminStatus
+        setUser({
+          ...data,
+          uid,
+          emailVerified: !!auth.currentUser?.emailVerified,
         } as UserType);
+
+        // ✅ If user gets terminated WHILE logged in — guard in _layout.tsx handles redirect
+        // No need to do anything here — TerminatedGuard watches user state reactively
       } else if (auth.currentUser) {
         setUser({
           uid,
@@ -65,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: 'adopter',
           petPostIds: [], favorites: [], adoptedPets: [],
           emailVerified: !!auth.currentUser.emailVerified,
-          createdAt: null
+          createdAt: null,
         } as UserType);
       }
       setInitialized(true);
@@ -78,9 +91,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         fetchUserData(firebaseUser.uid);
+
+        if (tokenRegistered.current !== firebaseUser.uid) {
+          tokenRegistered.current = firebaseUser.uid;
+          registerPushToken(firebaseUser.uid).catch(console.error);
+        }
       } else {
         if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
-        if (isMounted.current) { setUser(null); setInitialized(true); }
+        if (isMounted.current) {
+          setUser(null);
+          setInitialized(true);
+          tokenRegistered.current = null;
+        }
       }
     });
     return () => {
@@ -100,8 +122,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateLocalAndRemote = async (field: string, value: any, isArray = false, type: "union" | "remove" = "union") => {
     if (!auth.currentUser || !isMounted.current) return;
     const docRef = doc(firestore, "users", auth.currentUser.uid);
-    const payload = isArray 
-      ? { [field]: type === "union" ? arrayUnion(value) : arrayRemove(value) } 
+    const payload = isArray
+      ? { [field]: type === "union" ? arrayUnion(value) : arrayRemove(value) }
       : { [field]: value };
     try { await updateDoc(docRef, payload); } catch (e) { console.error(e); }
   };
@@ -135,8 +157,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = async () => {
+  const logout = async (): Promise<ResponseType> => {
     if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
+
+    // Clear push token on logout
+    if (auth.currentUser) {
+      try {
+        await updateDoc(doc(firestore, "users", auth.currentUser.uid), {
+          expoPushToken: null,
+        });
+      } catch { /* best effort */ }
+    }
+
+    tokenRegistered.current = null;
     await signOut(auth);
     router.replace("/(auth)/welcome");
     return { success: true };
@@ -154,10 +187,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const contextValue: AuthContextType = useMemo(() => ({
-    user, setUser, initialized,
+    user,
+    setUser,
+    initialized,
+
     login: async (e, p) => {
       try {
-        await signInWithEmailAndPassword(auth, e.trim(), p);
+        const cred = await signInWithEmailAndPassword(auth, e.trim(), p);
+
+        // ✅ Check terminated BEFORE letting them in
+        const userSnap = await getDoc(doc(firestore, "users", cred.user.uid));
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          if (data.adminStatus === 'terminated') {
+            // Sign them back out immediately
+            await signOut(auth);
+            Alert.alert(
+              "Account Suspended 🚫",
+              "Your FurrEver account has been suspended. Visit myfurrever.vercel.app/contact for more information.",
+              [{ text: "OK", style: "default" }]
+            );
+            return { success: false, msg: "account-terminated" };
+          }
+        }
+
+        registerPushToken(cred.user.uid).catch(console.error);
         return { success: true };
       } catch (err: any) {
         if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
@@ -167,6 +221,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, msg: err.code };
       }
     },
+
     register: async (email, password, name) => {
       try {
         const res = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -174,7 +229,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await sendEmailVerification(res.user);
         return { success: true };
       } catch (err: any) {
-        // --- ADDED: Email already in use alert ---
         if (err.code === "auth/email-already-in-use") {
           Alert.alert(
             "Account Exists",
@@ -189,15 +243,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, msg: err.code };
       }
     },
-    logout, reloadUser,
+
+    logout,
+    reloadUser,
+
     sendVerification: async () => {
-      if (auth.currentUser) { await sendEmailVerification(auth.currentUser); return { success: true }; }
+      if (auth.currentUser) {
+        await sendEmailVerification(auth.currentUser);
+        return { success: true };
+      }
       return { success: false };
     },
+
     resetPassword: async (email) => {
       const trimmedEmail = email.trim().toLowerCase();
       try {
-        const userQuery = query(collection(firestore, "users"), where("email", "==", trimmedEmail));
+        const userQuery = query(
+          collection(firestore, "users"),
+          where("email", "==", trimmedEmail)
+        );
         const userSnap = await getDocs(userQuery);
         if (userSnap.empty) {
           showNoAccountAlert();
@@ -205,10 +269,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         await sendPasswordResetEmail(auth, trimmedEmail);
         return { success: true };
-      } catch (error) {
+      } catch {
         return { success: false, msg: "error" };
       }
     },
+
     updateUserData: async () => {},
     promoteToSeller: async () => updateLocalAndRemote("role", "seller"),
     addPetPostId: async (uid, petId) => updateLocalAndRemote("petPostIds", petId, true, "union"),

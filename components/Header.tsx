@@ -1,5 +1,5 @@
 import { HeaderProps } from '@/types'
-import React from 'react'
+import React, {memo} from 'react'
 import { StyleSheet, View } from 'react-native'
 import Typo from './Typo'
 
@@ -23,7 +23,7 @@ const Header = ({ title = "", leftIcon, style }: HeaderProps) => {
   );
 };
 
-export default Header
+export default memo(Header)
 
 const styles = StyleSheet.create({
     container: {

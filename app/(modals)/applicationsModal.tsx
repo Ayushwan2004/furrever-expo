@@ -236,7 +236,7 @@ const ApplicationsModal = () => {
     );
 };
 
-export default ApplicationsModal;
+export default React.memo(ApplicationsModal);
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background, padding: Platform.OS === 'ios' ? spacingX._20 : spacingX._20  },

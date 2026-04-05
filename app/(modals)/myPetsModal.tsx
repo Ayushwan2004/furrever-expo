@@ -145,7 +145,7 @@ const MyPetsModal = () => {
     );
 };
 
-export default MyPetsModal;
+export default React.memo(MyPetsModal);
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },

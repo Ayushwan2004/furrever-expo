@@ -235,4 +235,4 @@ const styles = StyleSheet.create({
   guestSub: { textAlign: 'center', marginTop: 10, lineHeight: 22 },
 });
 
-export default Inbox;
+export default memo(Inbox);

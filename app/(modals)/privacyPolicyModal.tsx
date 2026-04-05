@@ -142,4 +142,4 @@ const styles = StyleSheet.create({
     }
 });
 
-export default privacyPolicyModal;
+export default React.memo(privacyPolicyModal);

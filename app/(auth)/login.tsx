@@ -27,7 +27,7 @@ const Login = () => {
   const router = useRouter();
   const { login: loginUser, resetPassword } = useAuth();
 
-  const handleAction = async (action: () => Promise<void>) => {
+  const handleAction = useCallback(async (action: () => Promise<void>) => {
     if (isBusy.current) return;
     isBusy.current = true;
     try { 
@@ -35,9 +35,9 @@ const Login = () => {
     } finally { 
       setTimeout(() => { isBusy.current = false; }, 600); 
     }
-  };
+  }, []);
 
-  const checkRateLimit = async (): Promise<boolean> => {
+  const checkRateLimit = useCallback(async (): Promise<boolean> => {
     const now = Date.now();
     const stored = await AsyncStorage.getItem(ATTEMPTS_KEY);
     let attempts: number[] = stored ? JSON.parse(stored) : [];
@@ -53,9 +53,9 @@ const Login = () => {
     attempts.push(now);
     await AsyncStorage.setItem(ATTEMPTS_KEY, JSON.stringify(attempts));
     return true;
-  };
+  }, []);
 
-  const onResetLinkPress = async () => {
+  const onResetLinkPress = useCallback(async () => {
     const allowed = await checkRateLimit();
     if (!allowed) return;
 
@@ -67,13 +67,12 @@ const Login = () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Success", "Reset link sent! Please check your inbox.");
     } else {
-      // Logic for "Account Not Found" is now handled inside AuthContext's resetPassword
       if (res.msg !== "user-not-found") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert("Error", "Could not process request. Please try again.");
       }
     }
-  };
+  }, [email, checkRateLimit, resetPassword]);
 
   const handleForgotPassword = useCallback(() => {
     handleAction(async () => {
@@ -92,9 +91,9 @@ const Login = () => {
         ]
       );
     });
-  }, [email]);
+  }, [email, handleAction, onResetLinkPress]);
 
-  const handleLogin = () => {
+  const handleLogin = useCallback(() => {
     handleAction(async () => {
       const trimmedEmail = email.trim().toLowerCase();
       if (!trimmedEmail || !password) {
@@ -120,7 +119,7 @@ const Login = () => {
         setIsLoading(false); 
       }
     });
-  };
+  }, [email, password, handleAction, loginUser]);
 
   return (
     <ScreenWrapper>
@@ -166,7 +165,7 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default React.memo(Login);
 
 const styles = StyleSheet.create({
   scrollContainer: { flexGrow: 1, gap: spacingY._30, paddingHorizontal: spacingX._20, paddingBottom: spacingY._30 },

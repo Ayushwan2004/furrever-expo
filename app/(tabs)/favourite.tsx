@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { StyleSheet, FlatList, View, InteractionManager } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { HeartStraight } from 'phosphor-react-native';
@@ -73,4 +73,4 @@ const styles = StyleSheet.create({
   guestSub: { textAlign: 'center', marginTop: 10, lineHeight: 22 },
 });
 
-export default Favourite;
+export default memo(Favourite);

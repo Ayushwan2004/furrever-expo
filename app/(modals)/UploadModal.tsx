@@ -10,7 +10,15 @@ import { colors, radius, spacingY } from "@/constants/themes";
 import Typo from "@/components/Typo";
 import * as Icons from "phosphor-react-native";
 import { verticalScale } from "@/utils/styling";
-import { UploadModalProps } from "@/types";
+
+interface UploadModalProps {
+    modalVisible: boolean;
+    onBackPress: () => void;
+    onCameraPress: () => void;
+    onGalleryPress: () => void;
+    onRemovePress: () => void;
+    isLoading?: boolean;
+}
 
 const UploadModal: React.FC<UploadModalProps> = ({
     modalVisible,

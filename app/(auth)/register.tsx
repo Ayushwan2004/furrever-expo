@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { Alert, StyleSheet, View, Pressable, KeyboardAvoidingView, Platform, ScrollView, Keyboard, InteractionManager } from "react-native";
 import { useRouter } from "expo-router";
 import * as Icons from "phosphor-react-native";
@@ -29,7 +29,7 @@ const Register = () => {
     return () => { isMounted.current = false; };
   }, []);
 
-  const handleAction = async (action: () => Promise<void>) => {
+  const handleAction = useCallback(async (action: () => Promise<void>) => {
     if (isBusy.current || !isMounted.current) return;
     isBusy.current = true;
     try {
@@ -37,9 +37,9 @@ const Register = () => {
     } finally {
       setTimeout(() => { if (isMounted.current) isBusy.current = false; }, 800);
     }
-  };
+  }, []);
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     handleAction(async () => {
       const trimmedEmail = email.trim().toLowerCase();
       const trimmedName = name.trim();
@@ -69,7 +69,7 @@ const Register = () => {
         if (isMounted.current) setIsLoading(false);
       }
     });
-  };
+  }, [name, email, password, handleAction, registerUser]);
 
   return (
     <ScreenWrapper>
@@ -96,7 +96,7 @@ const Register = () => {
   );
 };
 
-export default Register;
+export default React.memo(Register);
 
 const styles = StyleSheet.create({
   scrollContainer: { flexGrow: 1, gap: spacingY._30, paddingHorizontal: spacingX._20, paddingBottom: spacingY._30 },

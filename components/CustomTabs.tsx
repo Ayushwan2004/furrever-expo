@@ -53,7 +53,7 @@ const TabIcon = memo(({ routeName, isFocused, badgeCount }: { routeName: string,
   );
 });
 
-export default function CustomTabs({ state, descriptors, navigation }: BottomTabBarProps) {
+const CustomTabs = ({ state, descriptors, navigation }: BottomTabBarProps) => {
   const { rooms } = useChat();
   const { user } = useAuth();
 
@@ -133,6 +133,8 @@ export default function CustomTabs({ state, descriptors, navigation }: BottomTab
     </View>
   );
 }
+
+export default memo(CustomTabs);
 
 const styles = StyleSheet.create({
   container: {
