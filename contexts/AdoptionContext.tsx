@@ -1,8 +1,3 @@
-// contexts/AdoptionContext.tsx
-// CHANGED: updateApplicationStatus now sends Expo push notification to adopter
-// AND to the pet owner when a new application comes in (sendApplication)
-// Everything else identical to your original
-
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import {
   collection, addDoc, doc, updateDoc, serverTimestamp,
@@ -13,7 +8,7 @@ import { useAuth } from "./AuthContext";
 import { usePets } from "./PetContext";
 import { AdoptionType, AdoptionContextType, ResponseType, PetType } from "@/types";
 import * as Haptics from 'expo-haptics';
-// ✅ NEW
+
 import { sendExpoPush } from "@/services/pushTokenService";
 
 const AdoptionContext = createContext<AdoptionContextType | undefined>(undefined);

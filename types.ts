@@ -135,10 +135,11 @@ export type AdoptionType = {
   petAge?: string | number;
 };
 
+export type CertificateStatus = 'active' | 'reissued';
+
 export type CertificateType = {
-  id: string;
-  certificateId: string; 
-  adoptionId: string;
+  id: string;                    
+  serialCode: string;           
   petId: string;
   adopterId: string;
   adopterName: string;
@@ -149,8 +150,11 @@ export type CertificateType = {
   color?: string;
   age?: string | number;
   issuedAt: any;
+  issuedBy: 'system' | string;   
+  version: number;               
+  status: CertificateStatus;
+  notes?: string;               
 };
-
 /** --- CONTEXT & API RESPONSE TYPES --- **/
 
 export type ResponseType = {
@@ -171,6 +175,8 @@ export type AuthContextType = {
   user: UserType;
   setUser: React.Dispatch<React.SetStateAction<UserType>>;
   initialized: boolean;
+  terminatedOnLogin: boolean;
+  clearTerminatedOnLogin: () => void;
   login: (email: string, password: string) => Promise<ResponseType>;
   register: (email: string, password: string, name: string) => Promise<ResponseType>;
   logout: () => Promise<ResponseType>;

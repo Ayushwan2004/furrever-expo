@@ -1,9 +1,3 @@
-// contexts/AuthContext.tsx
-// CHANGED from previous version:
-//  1. login() now checks adminStatus === 'terminated' and blocks sign-in
-//  2. fetchUserData stores full Firestore data including adminStatus
-//  3. UserType extended inline to include adminStatus (no types.ts change needed)
-
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Alert } from "react-native";
@@ -40,6 +34,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserType | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [terminatedOnLogin, setTerminatedOnLogin] = useState(false);
   const router = useRouter();
   const segments = useSegments();
   const unsubscribeFirestoreRef = useRef<Unsubscribe | null>(null);
@@ -60,16 +55,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (docSnap.exists()) {
         const data = docSnap.data();
-
-        // ✅ Store full user data including adminStatus
         setUser({
           ...data,
           uid,
           emailVerified: !!auth.currentUser?.emailVerified,
         } as UserType);
-
-        // ✅ If user gets terminated WHILE logged in — guard in _layout.tsx handles redirect
-        // No need to do anything here — TerminatedGuard watches user state reactively
       } else if (auth.currentUser) {
         setUser({
           uid,
@@ -81,30 +71,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           createdAt: null,
         } as UserType);
       }
-      setInitialized(true);
-    }, () => {
+
+      console.log('[Auth] Setting initialized true - docSnap exists:', docSnap.exists());
+      if (isMounted.current) setInitialized(true);
+
+    }, (error) => {
+      console.log('[Auth] Setting initialized true - from error handler', error);
       if (isMounted.current) setInitialized(true);
     });
   };
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      console.log('[Auth] onAuthStateChanged - user:', firebaseUser?.uid ?? 'null');
+
       if (firebaseUser) {
         fetchUserData(firebaseUser.uid);
 
-        if (tokenRegistered.current !== firebaseUser.uid) {
+        // FIX 1: Only register push token if email is verified.
+        // New registrations won't have a Firestore doc yet — it's created
+        // inside reloadUser() only after email verification is confirmed.
+        if (firebaseUser.emailVerified && tokenRegistered.current !== firebaseUser.uid) {
           tokenRegistered.current = firebaseUser.uid;
-          registerPushToken(firebaseUser.uid).catch(console.error);
+          console.log('[Auth] Calling registerPushToken for:', firebaseUser.uid);
+          registerPushToken(firebaseUser.uid)
+            .then(token => console.log('[Auth] registerPushToken result:', token))
+            .catch(e => console.error('[Auth] registerPushToken failed:', e));
         }
       } else {
         if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
         if (isMounted.current) {
           setUser(null);
+          console.log('[Auth] Setting initialized true - no user');
           setInitialized(true);
           tokenRegistered.current = null;
         }
       }
     });
+
     return () => {
       unsubscribeAuth();
       if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
@@ -151,7 +155,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         await updateDoc(userRef, { emailVerified: true });
       }
+
+      // FIX 2: Register push token here — Firestore doc is guaranteed to
+      // exist at this point (just created or confirmed above).
+      if (isMounted.current && tokenRegistered.current !== auth.currentUser.uid) {
+        tokenRegistered.current = auth.currentUser.uid;
+        console.log('[Auth] reloadUser: registering push token after verification');
+        registerPushToken(auth.currentUser.uid).catch(console.error);
+      }
     }
+
     if (isMounted.current && isNowVerified !== wasVerified) {
       setUser(prev => prev ? { ...prev, emailVerified: isNowVerified } : null);
     }
@@ -160,7 +173,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async (): Promise<ResponseType> => {
     if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
 
-    // Clear push token on logout
     if (auth.currentUser) {
       try {
         await updateDoc(doc(firestore, "users", auth.currentUser.uid), {
@@ -190,28 +202,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     setUser,
     initialized,
+    terminatedOnLogin,
+    clearTerminatedOnLogin: () => setTerminatedOnLogin(false),
 
     login: async (e, p) => {
       try {
         const cred = await signInWithEmailAndPassword(auth, e.trim(), p);
 
-        // ✅ Check terminated BEFORE letting them in
         const userSnap = await getDoc(doc(firestore, "users", cred.user.uid));
         if (userSnap.exists()) {
           const data = userSnap.data();
           if (data.adminStatus === 'terminated') {
-            // Sign them back out immediately
             await signOut(auth);
-            Alert.alert(
-              "Account Suspended 🚫",
-              "Your FurrEver account has been suspended. Visit myfurrever.vercel.app/contact for more information.",
-              [{ text: "OK", style: "default" }]
-            );
+            setTerminatedOnLogin(true);
             return { success: false, msg: "account-terminated" };
           }
         }
 
-        registerPushToken(cred.user.uid).catch(console.error);
+        // FIX 3: Removed redundant registerPushToken call here.
+        // onAuthStateChanged handles it for verified users on login,
+        // with the emailVerified guard added in FIX 1.
         return { success: true };
       } catch (err: any) {
         if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
@@ -227,6 +237,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const res = await createUserWithEmailAndPassword(auth, email.trim(), password);
         await updateProfile(res.user, { displayName: name.trim() });
         await sendEmailVerification(res.user);
+        // No push token registration here — user doc doesn't exist yet.
+        // Token is registered in reloadUser() after email is verified.
         return { success: true };
       } catch (err: any) {
         if (err.code === "auth/email-already-in-use") {
@@ -274,11 +286,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     },
 
-    updateUserData: async () => {},
+    updateUserData: async () => { },
     promoteToSeller: async () => updateLocalAndRemote("role", "seller"),
     addPetPostId: async (uid, petId) => updateLocalAndRemote("petPostIds", petId, true, "union"),
     removePetPostId: async (uid, petId) => updateLocalAndRemote("petPostIds", petId, true, "remove"),
-  }), [user, initialized]);
+  }), [user, initialized, terminatedOnLogin]);
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };

@@ -1,6 +1,8 @@
 // app/_layout.tsx
 import React, { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { View } from 'react-native';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { PetProvider } from '@/contexts/PetContext';
 import { AdoptionProvider } from '@/contexts/AdoptionContext';
@@ -8,51 +10,27 @@ import { CertificateProvider } from '@/contexts/certificationContext';
 import { ChatProvider } from '@/contexts/chatContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import VerificationGateway from '@/app/(modals)/verificationGateway';
+import TerminatedOverlay from '@/components/TerminatedOverlay';
 
-// ─── Terminated account guard ─────────────────────────────────────────────────
-function TerminatedGuard() {
-  const { user, initialized } = useAuth();
-  const router = useRouter();
-  const segments = useSegments();
+SplashScreen.preventAutoHideAsync();
+
+// ─── Stack + splash hide ──────────────────────────────────────────────────────
+function StackLayout() {
+  const { initialized } = useAuth();
 
   useEffect(() => {
-    if (!initialized) return;
-
-    const isTerminated = user && (user as any).adminStatus === 'terminated';
-    // Use type assertion to bypass expo-router's strict typed routes for dynamic screens
-    const onTerminatedScreen = (segments as string[])[0] === 'terminated';
-
-    if (isTerminated && !onTerminatedScreen) {
-      router.replace('/terminated' as any);
-      return;
+    if (initialized) {
+      setTimeout(() => {
+        SplashScreen.hideAsync().catch(() => {});
+      }, 150);
     }
+  }, [initialized]);
 
-    if (!isTerminated && onTerminatedScreen && user?.emailVerified) {
-      router.replace('/(tabs)' as any);
-    }
-  }, [user, initialized, segments]);
-
-  return null;
-}
-
-// ─── Stack navigator ──────────────────────────────────────────────────────────
-const StackLayout = () => {
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
-
-        {/* Terminated screen — no back gesture */}
-        <Stack.Screen
-          name="terminated"
-          options={{
-            presentation: 'card',
-            gestureEnabled: false,
-            animation: 'fade',
-          }}
-        />
-
         <Stack.Screen
           name="(modals)/applicationsModal"
           options={{ presentation: 'modal' }}
@@ -76,10 +54,10 @@ const StackLayout = () => {
       </Stack>
 
       <VerificationGateway />
-      <TerminatedGuard />
-    </>
+      <TerminatedOverlay />
+    </View>
   );
-};
+}
 
 // ─── Root layout ──────────────────────────────────────────────────────────────
 export default function RootLayout() {

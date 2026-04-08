@@ -47,7 +47,7 @@ const Welcome = () => {
           </TouchableOpacity>
         </View>
 
-        <Animated.Image entering={FadeIn.duration(1000).springify()} source={require('../../assets/welcomeImage.jpg')} style={styles.welcomeImage} resizeMode='contain' />
+        <Animated.Image entering={FadeIn.duration(1000).springify()} source={require('../../assets/welcomeImage.png')} style={styles.welcomeImage} resizeMode='contain' />
 
         <View style={styles.footer}>
           <Animated.View entering={FadeInDown.duration(800).springify()}>

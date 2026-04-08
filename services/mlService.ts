@@ -1,21 +1,16 @@
 /**
- * services/mlService.ts  v4
- * ─────────────────────────────────────────────────────────────────────────────
- * Changes in v4:
- *   • prepareImageForML now sends EXACTLY 224×224 px to the server.
- *     The model was trained on 224×224 direct-resized images. Sending a larger
- *     image and letting the server resize is fine, but sending exactly 224×224
- *     removes one variable and guarantees the server does zero resizing.
- *   • Image is sent as JPEG quality 0.92 (high enough to avoid artefacts that
- *     confuse EfficientNet, lower than 1.0 to keep transfer fast).
- *   • breed_confidence added to PetMLFields + MLSuccessResponse.
- *   • computeTrustScore mirrors the server-side formula exactly.
+ * services/mlService.ts  v5
  */
 
 import * as ImageManipulator from "expo-image-manipulator";
 import { ML_API_BASE_URL, ML_REQUEST_TIMEOUT_MS } from "@/config/mlConfig";
 
-// ─── Server response types ─────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const AI_REJECT_THRESHOLD    = 85;  // reject if AI confidence ≥ 85%
+const BREED_REJECT_THRESHOLD = 85;  // reject if breed confidence < 85%
+
+// ─── Server response types ────────────────────────────────────────────────────
 
 export type AnimalType = "cat" | "dog" | "bird" | "rabbit" | string;
 
@@ -23,10 +18,10 @@ export interface MLSuccessResponse {
   status:            "success";
   method:            string;
   animal:            AnimalType;
-  confidence:        number;              // animal-type model confidence 0-100
+  confidence:        number;
   breed:             string;
-  breed_confidence:  number | null;       // breed model confidence 0-100, null for bird/rabbit
-  trust_score:       number;             // composite score 0-100, floor 85 for approved
+  breed_confidence:  number | null;
+  trust_score:       number;
   authenticity:      { label: "real" | "ai"; confidence: number } | null;
   image_url:         string | null;
   summary:           string;
@@ -41,40 +36,33 @@ export interface MLRejectedResponse {
 
 export type MLRawResponse = MLSuccessResponse | MLRejectedResponse;
 
-// ─── UI-facing types ───────────────────────────────────────────────────────────
+// ─── UI-facing types ──────────────────────────────────────────────────────────
 
 export interface MLScores {
-  categoryConfidence: number;        // animal-type model
-  breedConfidence:    number | null; // breed model, null for bird/rabbit/other
-  authConfidence:     number;        // real-vs-AI model
-  trustScore:         number;        // composite, always ≥ 85 for approved images
+  categoryConfidence: number;
+  breedConfidence:    number | null;
+  authConfidence:     number;
+  trustScore:         number;
 }
 
 export interface PetMLFields {
-  category:     string;   // "Dogs" | "Cats" | "Birds" | "Others"
-  breed:        string;   // humanised breed name or "Unknown"
+  category:     string;
+  breed:        string;
   authenticity: "real" | "ai" | null;
   imageUrl:     string | null;
   scores:       MLScores;
   raw:          MLSuccessResponse;
 }
 
-// ─── Trust score (mirrors server formula) ─────────────────────────────────────
+// ─── Trust score ──────────────────────────────────────────────────────────────
 
 export const TRUST_FLOOR = 85;
 
-/**
- * Weighted composite: auth 40% + category 35% + breed 25%
- * (55/45 auth/category when breed is unavailable)
- * Floor-clamped: approved images always show ≥ 85%.
- */
 export function computeTrustScore(
   categoryConf: number,
   authConf:     number,
   breedConf:    number | null,
 ): number {
-  // Use the server-provided trust_score directly when available.
-  // This function is a client-side mirror for cases where we compute locally.
   let raw: number;
   if (breedConf !== null) {
     raw = authConf * 0.40 + categoryConf * 0.35 + breedConf * 0.25;
@@ -98,12 +86,50 @@ export class MLError extends Error {
       | "SERVER_UNAVAILABLE"
       | "AI_GENERATED"
       | "LOW_CONFIDENCE"
+      | "LOW_BREED_CONFIDENCE"
       | "INVALID_IMAGE"
       | "UNKNOWN",
     public readonly confidence?: number,
   ) {
     super(message);
     this.name = "MLError";
+  }
+}
+
+// ─── Client-side rejection logic ──────────────────────────────────────────────
+
+/**
+ * Two-stage rejection:
+ *  1. If AI confidence ≥ 85% → reject as AI generated
+ *  2. If breed confidence < 85% (for dogs/cats) → reject as low breed confidence
+ */
+function applyClientRejectionRules(raw: MLSuccessResponse): void {
+  const authConf  = raw.authenticity?.confidence ?? 0;
+  const authLabel = raw.authenticity?.label ?? "real";
+  const breedConf = raw.breed_confidence;
+  const animal    = raw.animal?.toLowerCase();
+
+  // Rule 1: AI generated check
+  if (authLabel === "ai" && authConf >= AI_REJECT_THRESHOLD) {
+    throw new MLError(
+      `This image appears to be AI-generated (${authConf.toFixed(1)}% confidence). ` +
+      "Only real pet photos are accepted.",
+      "AI_GENERATED",
+      authConf,
+    );
+  }
+
+  // Rule 2: Breed confidence check (only for dogs and cats)
+  if (animal === "dog" || animal === "cat") {
+    if (breedConf === null || breedConf < BREED_REJECT_THRESHOLD) {
+      const confStr = breedConf !== null ? `${breedConf.toFixed(1)}%` : "unavailable";
+      throw new MLError(
+        `Breed could not be identified with enough confidence (${confStr}). ` +
+        "Please upload a clearer photo where the pet is the main subject.",
+        "LOW_BREED_CONFIDENCE",
+        breedConf ?? 0,
+      );
+    }
   }
 }
 
@@ -133,7 +159,6 @@ function buildPetMLFields(raw: MLSuccessResponse): PetMLFields {
     categoryConfidence: Math.round(categoryConf * 10) / 10,
     breedConfidence:    breedConf !== null ? Math.round(breedConf * 10) / 10 : null,
     authConfidence:     Math.round(authConf * 10) / 10,
-    // Prefer the server-computed trust_score (it has all model internals)
     trustScore: raw.trust_score ?? computeTrustScore(categoryConf, authConf, breedConf),
   };
 
@@ -147,12 +172,12 @@ function buildPetMLFields(raw: MLSuccessResponse): PetMLFields {
   };
 }
 
-// ─── fetch with timeout ────────────────────────────────────────────────────────
+// ─── Fetch with timeout ───────────────────────────────────────────────────────
 
 async function fetchWithTimeout(
-  url:      string,
-  options:  RequestInit,
-  ms:       number,
+  url:     string,
+  options: RequestInit,
+  ms:      number,
 ): Promise<Response> {
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
@@ -161,15 +186,12 @@ async function fetchWithTimeout(
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new MLError(
-        `ML server did not respond within ${ms / 1000}s. ` +
-        "The server may be starting up (Render free tier takes ~30 s cold-start). " +
-        "Please try again.",
+        `ML server did not respond within ${ms / 1000}s. Please try again.`,
         "TIMEOUT",
       );
     }
     throw new MLError(
-      "Cannot reach the ML server. Ensure your phone and laptop are on the " +
-      "same WiFi and the IP in mlConfig.ts is correct.",
+      "Cannot reach the ML server. Check your internet connection.",
       "NETWORK",
     );
   } finally {
@@ -185,7 +207,7 @@ export async function checkMLHealth(): Promise<{ ok: boolean; reason?: string }>
     if (!res.ok) return { ok: false, reason: `Server HTTP ${res.status}` };
     const data = await res.json();
     if (data.ready === false) {
-      return { ok: false, reason: "Models still loading on server — please wait 30 s and retry." };
+      return { ok: false, reason: "Models still loading — please wait and retry." };
     }
     return { ok: true };
   } catch (err: any) {
@@ -193,6 +215,7 @@ export async function checkMLHealth(): Promise<{ ok: boolean; reason?: string }>
   }
 }
 
+// ─── Image preparation ────────────────────────────────────────────────────────
 
 export async function prepareImageForML(imageUri: string): Promise<{
   uri:  string;
@@ -201,7 +224,7 @@ export async function prepareImageForML(imageUri: string): Promise<{
 }> {
   const result = await ImageManipulator.manipulateAsync(
     imageUri,
-    [{ resize: { width: 224, height: 224 } }],  // direct stretch, no crop
+    [{ resize: { width: 224, height: 224 } }],
     { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
   );
   return {
@@ -214,7 +237,7 @@ export async function prepareImageForML(imageUri: string): Promise<{
 // ─── Classify ─────────────────────────────────────────────────────────────────
 
 export async function classifyPetImage(imageUri: string): Promise<PetMLFields> {
-  // 1. Quick health check
+  // 1. Health check
   const health = await checkMLHealth();
   if (!health.ok) {
     throw new MLError(health.reason ?? "ML server unavailable", "SERVER_UNAVAILABLE");
@@ -231,7 +254,7 @@ export async function classifyPetImage(imageUri: string): Promise<PetMLFields> {
     type: prepared.type,
   } as any);
 
-  // 4. POST
+  // 4. POST to server
   const res = await fetchWithTimeout(
     `${ML_API_BASE_URL}/predict`,
     { method: "POST", body: form },
@@ -244,9 +267,10 @@ export async function classifyPetImage(imageUri: string): Promise<PetMLFields> {
     throw new MLError(detail, "SERVER_UNAVAILABLE");
   }
 
-  // 5. Parse
+  // 5. Parse server response
   const raw: MLRawResponse = await res.json();
 
+  // 6. Handle server-side rejections
   if (raw.status === "rejected") {
     switch (raw.reason) {
       case "ai_generated":  throw new MLError(raw.message, "AI_GENERATED",  raw.confidence);
@@ -255,5 +279,9 @@ export async function classifyPetImage(imageUri: string): Promise<PetMLFields> {
     }
   }
 
+  // 7. Apply client-side rejection rules (AI ≥ 85% or breed < 85%)
+  applyClientRejectionRules(raw);
+
+  // 8. Build and return
   return buildPetMLFields(raw);
 }

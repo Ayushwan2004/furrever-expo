@@ -1,18 +1,15 @@
 /**
- * PetListModal.tsx  v4
+ * PetListModal.tsx  v5
  * ─────────────────────────────────────────────────────────────────────────────
- * Changes in v4:
- *   • processImageAndStartML now passes the ORIGINAL uri (full quality) to
- *     classifyPetImage, which will resize to exactly 224×224 before upload.
- *     The display image is still resized to 800px for fast rendering.
- *   • Category + Breed fields remain locked (read-only) until ML approves.
- *   • Submit button disabled until verified + all fields filled.
- *   • TrustScore badge with per-signal breakdown displayed below avatar.
- *   • Avatar border and overlay icon reflect real-time ML status.
+ * Changes in v5:
+ *   • Removed lazy() + Suspense for UploadModal — direct import instead.
+ *   • UploadModal is always mounted (never conditionally removed from tree)
+ *     so pencil-icon tap is instant (was ~103ms cold-mount delay).
+ *   • Removed lazy and Suspense from React imports.
  */
 
 import React, {
-  useEffect, useState, useMemo, useRef, useCallback, memo, lazy, Suspense,
+  useEffect, useState, useMemo, useRef, useCallback, memo,
 } from "react";
 import {
   ActivityIndicator, Alert, Modal, ScrollView, StyleSheet,
@@ -44,8 +41,7 @@ import { scale, verticalScale } from "@/utils/styling";
 import {
   classifyPetImage, PetMLFields, MLError, MLScores, TRUST_FLOOR,
 } from "@/services/mlService";
-
-const UploadModal = lazy(() => import("./UploadModal"));
+import UploadModal from "./UploadModal";
 
 // ─── ML status ────────────────────────────────────────────────────────────────
 type MLStatus = "idle" | "running" | "approved" | "rejected" | "error";
@@ -283,8 +279,8 @@ const LockedField = memo(({ label, value, hint, locked }: {
 ));
 
 const lf = StyleSheet.create({
-  badge: { flexDirection: "row", alignItems: "center", backgroundColor: colors.backgroundDark, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  field: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.backgroundDark, borderRadius: radius._17, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.background, minHeight: 50 },
+  badge:  { flexDirection: "row", alignItems: "center", backgroundColor: colors.backgroundDark, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  field:  { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.backgroundDark, borderRadius: radius._17, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.background, minHeight: 50 },
   locked: { backgroundColor: colors.backgroundDark, borderColor: colors.backgroundDark, opacity: 0.85 },
 });
 
@@ -330,7 +326,6 @@ const PetListModal = () => {
   const navigationLock = useRef(false);
   const mlPromiseRef   = useRef<Promise<PetMLFields> | null>(null);
   const mlResultRef    = useRef<PetMLFields | null>(null);
-  // Keep the ORIGINAL image uri so classifyPetImage gets full quality
   const originalUriRef = useRef<string | null>(null);
 
   const [petData, setPetData] = useState({
@@ -375,7 +370,7 @@ const PetListModal = () => {
             image:       summary.image,
           });
           setLocationFetched(!!details?.address);
-          setMLStatus("approved");   // already verified when originally saved
+          setMLStatus("approved");
         }
       }
       setIsReady(true);
@@ -394,14 +389,12 @@ const PetListModal = () => {
 
   // ── Image + ML ────────────────────────────────────────────────────────────
   const processImageAndStartML = useCallback(async (uri: string) => {
-    // Reset
-    mlPromiseRef.current  = null;
-    mlResultRef.current   = null;
+    mlPromiseRef.current   = null;
+    mlResultRef.current    = null;
     originalUriRef.current = uri;
     setMLStatus("running");
     setMLScores(null);
 
-    // Display-quality resize (800px) — only for the avatar preview
     let displayUri = uri;
     try {
       const r = await ImageManipulator.manipulateAsync(
@@ -414,8 +407,7 @@ const PetListModal = () => {
     if (!isMounted.current) return;
     setPetData(p => ({ ...p, image: { uri: displayUri }, category: "Dogs", breed: "" }));
 
-    // ── Background ML (uses ORIGINAL uri → resized to 224×224 in mlService) ──
-    const promise = classifyPetImage(uri);   // uri = full quality original
+    const promise = classifyPetImage(uri);
     mlPromiseRef.current = promise;
 
     promise.then((result) => {
@@ -614,7 +606,7 @@ const PetListModal = () => {
               <Image
                 style={[
                   styles.avatar,
-                  !petData.image      && { borderColor: colors.red,   borderWidth: 2 },
+                  !petData.image        && { borderColor: colors.red,   borderWidth: 2 },
                   mlStatus==="approved" && { borderColor: colors.green, borderWidth: 2.5 },
                   mlStatus==="rejected" && { borderColor: colors.red,   borderWidth: 2.5 },
                 ]}
@@ -728,18 +720,17 @@ const PetListModal = () => {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Suspense fallback={null}>
-        {modalVisible && (
-          <UploadModal
-            modalVisible={modalVisible}
-            onBackPress={() => setModalVisible(false)}
-            onCameraPress={handleCameraPress}
-            onGalleryPress={handleGalleryPress}
-            onRemovePress={handleRemovePress}
-            isLoading={loading}
-          />
-        )}
-      </Suspense>
+      {/* FIX: Always mounted — no lazy/Suspense/conditional unmount.
+          UploadModal's internal Modal handles its own visibility via modalVisible prop.
+          This eliminates the ~103ms cold-mount delay on pencil icon press. */}
+      <UploadModal
+        modalVisible={modalVisible}
+        onBackPress={() => setModalVisible(false)}
+        onCameraPress={handleCameraPress}
+        onGalleryPress={handleGalleryPress}
+        onRemovePress={handleRemovePress}
+        isLoading={loading}
+      />
 
       <MLResultDialog
         state={mlDialog}
@@ -754,17 +745,17 @@ const PetListModal = () => {
 export default memo(PetListModal);
 
 const styles = StyleSheet.create({
-  container:      { paddingHorizontal: spacingX._20, paddingBottom: spacingY._30 },
-  centered:       { flex: 1, justifyContent: "center", alignItems: "center" },
-  avatarOuter:    { alignItems: "center", marginTop: spacingY._10, gap: 8 },
-  avatarContainer:{ position: "relative" },
-  form:           { gap: spacingY._20, marginTop: spacingY._15 },
-  footer:         { flexDirection: "row", justifyContent: "center", paddingHorizontal: spacingX._20, paddingTop: spacingY._15, marginBottom: spacingY._20 },
-  avatar:         { alignSelf: "center", backgroundColor: colors.backgroundDark, height: verticalScale(135), width: verticalScale(135), borderRadius: 200, borderWidth: 2, borderColor: colors.primary },
-  editIcon:       { position: "absolute", bottom: spacingY._5, right: spacingY._7, borderRadius: 100, backgroundColor: colors.green, padding: spacingY._7, elevation: 4 },
-  statusHint:     { textAlign: "center" },
-  inputContainer: { gap: spacingY._10 },
-  locationBtn:    { flexDirection: "row", alignItems: "center", backgroundColor: colors.primary + "15", paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius._10, gap: 4 },
+  container:         { paddingHorizontal: spacingX._20, paddingBottom: spacingY._30 },
+  centered:          { flex: 1, justifyContent: "center", alignItems: "center" },
+  avatarOuter:       { alignItems: "center", marginTop: spacingY._10, gap: 8 },
+  avatarContainer:   { position: "relative" },
+  form:              { gap: spacingY._20, marginTop: spacingY._15 },
+  footer:            { flexDirection: "row", justifyContent: "center", paddingHorizontal: spacingX._20, paddingTop: spacingY._15, marginBottom: spacingY._20 },
+  avatar:            { alignSelf: "center", backgroundColor: colors.backgroundDark, height: verticalScale(135), width: verticalScale(135), borderRadius: 200, borderWidth: 2, borderColor: colors.primary },
+  editIcon:          { position: "absolute", bottom: spacingY._5, right: spacingY._7, borderRadius: 100, backgroundColor: colors.green, padding: spacingY._7, elevation: 4 },
+  statusHint:        { textAlign: "center" },
+  inputContainer:    { gap: spacingY._10 },
+  locationBtn:       { flexDirection: "row", alignItems: "center", backgroundColor: colors.primary + "15", paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius._10, gap: 4 },
   locationBtnActive: { backgroundColor: colors.green + "15", borderColor: colors.green, borderWidth: 1 },
-  textArea:       { minHeight: verticalScale(80), alignItems: "flex-start", paddingTop: 10 },
+  textArea:          { minHeight: verticalScale(80), alignItems: "flex-start", paddingTop: 10 },
 });

@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-    StyleSheet, View, FlatList, ActivityIndicator, 
+import {
+    StyleSheet, View, FlatList, ActivityIndicator,
     TouchableOpacity, Platform, Alert, InteractionManager
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { 
-    collection, query, where, getDocs, 
-    addDoc, serverTimestamp, doc, getDoc 
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+
 import { DownloadSimple, PawPrint, SealCheck } from "phosphor-react-native";
 
 import ScreenWrapper from "@/components/ScreenWrapper";
@@ -26,7 +24,7 @@ const AdoptionHistoryModal = () => {
     const { user } = useAuth();
     const { applications, loading: adoptionsLoading } = useAdoption();
     const { downloadPDF } = useCertificate();
-    
+
     const [generatingId, setGeneratingId] = useState<string | null>(null);
     const [isReady, setIsReady] = useState(false); // New state for animation guard
     const isMounted = useRef(true);
@@ -42,21 +40,21 @@ const AdoptionHistoryModal = () => {
     }, []);
 
     const approvedAdoptions = useMemo(() => {
-        return applications.filter(app => 
+        return applications.filter(app =>
             app.status === 'approved' && app.adopterId === user?.uid
         );
     }, [applications, user?.uid]);
 
     const handleDownloadAction = async (adoption: AdoptionType) => {
         if (actionLock.current || generatingId) return;
-        
+
         try {
             actionLock.current = true;
             setGeneratingId(adoption.id);
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
             const petSnap = await getDoc(doc(firestore, "pets", adoption.petId));
-            
+
             if (!isMounted.current) return;
             if (!petSnap.exists()) {
                 Alert.alert("Notice", "Detailed pet records are no longer available.");
@@ -64,41 +62,46 @@ const AdoptionHistoryModal = () => {
             }
             const petData = petSnap.data() as PetType;
 
-            const certQuery = query(
-                collection(firestore, "certificates"),
-                where("adoptionId", "==", adoption.id)
-            );
-            const certSnap = await getDocs(certQuery);
-            
+            // Use petId as the document ID — deterministic, no duplicates
+            const certRef = doc(firestore, "certificates", adoption.petId);
+            const certSnap = await getDoc(certRef);
+
             if (!isMounted.current) return;
 
             let certificateData: CertificateType;
 
-            if (certSnap.empty) {
-                const uniqueId = `FE-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-                const newCert: any = {
-                    certificateId: uniqueId,
-                    adoptionId: adoption.id,
+            if (!certSnap.exists()) {
+                // First time — create with serial code CERT-{petId}
+                const newCert: Omit<CertificateType, 'id'> = {
+                    serialCode: `CERT-${adoption.petId}`,
                     petId: adoption.petId,
                     petName: petData.name,
                     petImage: petData.image,
-                    adopterId: user?.uid,
-                    adopterName: user?.name,
+                    adopterId: user?.uid ?? '',
+                    adopterName: user?.name ?? '',
                     breed: petData.breed || "Purebreed",
                     category: petData.category || "Pet",
-                    color: petData.coatcolor || "Standard", 
-                    age: petData.age || "Unknown",         
+                    color: petData.coatcolor || "Standard",
+                    age: petData.age || "Unknown",
                     issuedAt: serverTimestamp(),
+                    issuedBy: 'system',
+                    version: 1,
+                    status: 'active',
                 };
 
-                const docRef = await addDoc(collection(firestore, "certificates"), newCert);
-                certificateData = { ...newCert, id: docRef.id, issuedAt: { toDate: () => new Date() } };
+                await setDoc(certRef, newCert);
+                certificateData = {
+                    ...newCert,
+                    id: adoption.petId,
+                    issuedAt: { toDate: () => new Date() },
+                };
             } else {
-                certificateData = { id: certSnap.docs[0].id, ...certSnap.docs[0].data() } as CertificateType;
+                // Already exists (possibly reissued by admin) — use as-is
+                certificateData = { id: certSnap.id, ...certSnap.data() } as CertificateType;
             }
 
             await downloadPDF(certificateData);
-            
+
             if (isMounted.current) {
                 await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             }
@@ -129,7 +132,7 @@ const AdoptionHistoryModal = () => {
     return (
         <ScreenWrapper style={styles.container}>
             <Header title="My Records" leftIcon={<BackButton />} />
-            
+
             <FlatList
                 data={approvedAdoptions}
                 keyExtractor={(item) => item.id}
@@ -141,11 +144,11 @@ const AdoptionHistoryModal = () => {
                 windowSize={10}
                 renderItem={({ item }) => (
                     <View style={styles.card}>
-                        <Image 
-                            source={{ uri: item.petImage }} 
-                            style={styles.petThumb} 
-                            contentFit="cover" 
-                            transition={200} 
+                        <Image
+                            source={{ uri: item.petImage }}
+                            style={styles.petThumb}
+                            contentFit="cover"
+                            transition={200}
                         />
                         <View style={styles.details}>
                             <Typo fontWeight="800" size={18}>{item.petName}</Typo>
@@ -154,8 +157,8 @@ const AdoptionHistoryModal = () => {
                                 <Typo size={12} color={colors.green} fontWeight="700"> Official Record</Typo>
                             </View>
                         </View>
-                        <TouchableOpacity 
-                            style={styles.downloadBtn} 
+                        <TouchableOpacity
+                            style={styles.downloadBtn}
                             onPress={() => handleDownloadAction(item)}
                             activeOpacity={0.6}
                         >
@@ -183,9 +186,9 @@ const EmptyState = () => (
 );
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, padding: Platform.OS === 'ios' ? spacingX._20 : spacingX._20   },
+    container: { flex: 1, backgroundColor: colors.background, padding: Platform.OS === 'ios' ? spacingX._20 : spacingX._20 },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    listContent: {  paddingBottom: spacingY._30, paddingTop: 10 },
+    listContent: { paddingBottom: spacingY._30, paddingTop: 10 },
     card: {
         flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white,
         padding: 15, borderRadius: radius._20, marginBottom: 15,

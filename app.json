@@ -1,10 +1,10 @@
 {
   "expo": {
     "name": "FurrEver",
-    "slug": "FurrEver",
+    "slug": "furrever",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "assets/Logo.png",
+    "icon": "assets/Logo.jpeg",
     "scheme": "furreverexpo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -27,7 +27,9 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-notifications"
+        
     ],
     "experiments": {
       "typedRoutes": true,

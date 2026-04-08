@@ -72,7 +72,7 @@ export const CertificateProvider: React.FC<{ children: React.ReactNode }> = ({
                 </div>
                 <div class="footer">
                   <div style="text-align: left;">
-                    <p style="font-family: monospace; font-size: 10pt; color: #aaa; font-weight: bold;">ID: ${cert.certificateId}</p>
+                    <p style="font-family: monospace; font-size: 10pt; color: #aaa; font-weight: bold;">${cert.serialCode}</p>
                     <p style="color: ${colors.primary}; font-weight: 900; font-size: 12pt; letter-spacing: 2px;">OFFICIAL RECORD</p>
                     <p style="color: ${colors.textLight}; font-weight: 900; font-size: 8pt; letter-spacing: 2px;">Secured & Verified-FurrEver</p>
                   </div>

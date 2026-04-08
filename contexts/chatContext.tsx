@@ -1,6 +1,3 @@
-// contexts/chatContext.tsx
-// CHANGED: getOrCreateChatRoom and handleSend-equivalent now also push to recipient
-// New exported helper: notifyNewMessage — call this from chatScreenModal after batch.commit()
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import {
@@ -10,7 +7,7 @@ import {
 import { firestore } from "@/config/firebase";
 import { useAuth } from "./AuthContext";
 import { ChatRoomType, ChatContextType } from "@/types";
-// ✅ NEW
+
 import { sendExpoPush } from "@/services/pushTokenService";
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
