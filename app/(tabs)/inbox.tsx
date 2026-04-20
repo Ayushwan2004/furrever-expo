@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { 
-  FlatList, StyleSheet, TouchableOpacity, View, 
+  Alert, FlatList, StyleSheet, TouchableOpacity, View, 
   ActivityIndicator, TextInput, InteractionManager 
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -9,7 +9,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { 
   ChatTeardropDots, MagnifyingGlass, 
-  ChatCircleText, XCircle 
+  ChatCircleText, XCircle, Trash
 } from 'phosphor-react-native';
 
 import ScreenWrapper from '@/components/ScreenWrapper';
@@ -63,24 +63,22 @@ const Inbox = () => {
   const filteredRooms = useMemo(() => {
     const cleanSearch = debouncedSearch.trim().toLowerCase();
     if (!cleanSearch) return rooms;
-
     return rooms.filter((room) => {
       const metadata = room.participantMetadata || {};
       return Object.entries(metadata).some(([uid, data]: [string, any]) => {
         if (uid === user.uid) return false;
-        const participantName = data?.name?.toLowerCase() || "";
-        return participantName.includes(cleanSearch);
+        return (data?.name?.toLowerCase() || "").includes(cleanSearch);
       });
     });
   }, [debouncedSearch, rooms, user.uid]);
 
   const renderItem = useCallback(({ item }: { item: ChatRoomType }) => (
     <ChatListItem 
-        room={item} 
-        currentUserId={user.uid} 
-        isNavigating={isNavigating} 
-        isMounted={isMounted}
-        segments={segments} 
+      room={item} 
+      currentUserId={user.uid} 
+      isNavigating={isNavigating} 
+      isMounted={isMounted}
+      segments={segments} 
     />
   ), [user.uid, segments]);
 
@@ -128,7 +126,9 @@ const Inbox = () => {
 
 const ChatListItem = memo(({ room, currentUserId, isNavigating, isMounted, segments }: any) => {
   const router = useRouter();
+  const { deleteRoom } = useChat();
   const [otherUser, setOtherUser] = useState<UserType | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const otherId = room.participants.find((id: string) => id !== currentUserId);
 
   useEffect(() => {
@@ -146,37 +146,81 @@ const ChatListItem = memo(({ room, currentUserId, isNavigating, isMounted, segme
     if (isNavigating.current || !isMounted.current) return;
     isNavigating.current = true;
     
-    // DYNAMIC ROUTING: Prevent stacking chats on top of each other
     const isInModal = (segments as string[]).includes("(modals)");
-    
     InteractionManager.runAfterInteractions(() => {
-        const path = {
-            pathname: "/(modals)/chatScreenModal",
-            params: { 
-              roomId: room.id, 
-              otherUserId: otherId, 
-              otherUserName: otherUser?.name || room.participantMetadata?.[otherId!]?.name 
-            }
-        };
-
-        if (isInModal) router.replace(path as any);
-        else router.push(path as any);
-
-        setTimeout(() => { if (isMounted.current) isNavigating.current = false; }, 800);
+      const path = {
+        pathname: "/(modals)/chatScreenModal",
+        params: { 
+          roomId: room.id, 
+          otherUserId: otherId, 
+          otherUserName: otherUser?.name || room.participantMetadata?.[otherId!]?.name 
+        }
+      };
+      if (isInModal) router.replace(path as any);
+      else router.push(path as any);
+      setTimeout(() => { if (isMounted.current) isNavigating.current = false; }, 800);
     });
   };
+
+  // ── Long-press to delete ──────────────────────────────────────────────────
+  const handleLongPress = useCallback(() => {
+    const otherName =
+      otherUser?.name ||
+      room.participantMetadata?.[otherId!]?.name ||
+      "this conversation";
+
+    Alert.alert(
+      "Delete Conversation",
+      `Remove your chat with ${otherName}? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setIsDeleting(true);
+            await deleteRoom(room.id);
+            // No need to setIsDeleting(false) — the room will disappear from
+            // the list automatically via the Firestore onSnapshot listener.
+          },
+        },
+      ]
+    );
+  }, [deleteRoom, room.id, otherUser, otherId, room.participantMetadata]);
+
+  if (isDeleting) {
+    return (
+      <View style={[styles.roomItem, styles.deletingItem]}>
+        <ActivityIndicator size="small" color={colors.textLighter} />
+        <Typo size={14} color={colors.textLighter} style={{ marginLeft: 12 }}>Deleting…</Typo>
+      </View>
+    );
+  }
 
   return (
     <TouchableOpacity 
       activeOpacity={0.7} 
       style={[styles.roomItem, isUnread && styles.unreadContainer]} 
       onPress={handlePress}
+      onLongPress={handleLongPress}
+      delayLongPress={400}
     >
       {isUnread && <View style={styles.unreadIndicatorBar} />}
+
+      {/* Delete hint strip — always visible so users discover the gesture */}
+      <View style={styles.deleteHint}>
+        <Trash size={14} color={colors.textLighter} weight="bold" />
+      </View>
       
       <View style={styles.avatarWrapper}>
         <Image 
-          source={otherUser?.image ? { uri: otherUser.image } : (room.participantMetadata?.[otherId!]?.image ? { uri: room.participantMetadata[otherId!].image } : require('../../assets/Avatar.jpg'))} 
+          source={
+            otherUser?.image 
+              ? { uri: otherUser.image } 
+              : room.participantMetadata?.[otherId!]?.image 
+                ? { uri: room.participantMetadata[otherId!].image } 
+                : require('../../assets/Avatar.jpg')
+          } 
           style={styles.avatar} 
           contentFit="cover" 
           cachePolicy="memory-disk"
@@ -187,14 +231,15 @@ const ChatListItem = memo(({ room, currentUserId, isNavigating, isMounted, segme
       <View style={styles.content}>
         <View style={styles.row}>
           <View style={{ flex: 1, marginRight: 10, height: 22, overflow: 'hidden' }}>
-            <Typo fontWeight="700" size={17}>{otherUser?.name || room.participantMetadata?.[otherId!]?.name || "..."}</Typo>
+            <Typo fontWeight="700" size={17}>
+              {otherUser?.name || room.participantMetadata?.[otherId!]?.name || "..."}
+            </Typo>
           </View>
           <Typo size={12} color={isUnread ? colors.primary : colors.textLighter}>
             {updatedAt.getTime() > 0 ? formatDistanceToNowStrict(updatedAt) : ""}
           </Typo>
         </View>
         
-        {/* TS FIX: Wrapped in View with overflow to replace unsupported numberOfLines prop */}
         <View style={{ height: 20, overflow: 'hidden' }}>
           <Typo size={14} color={isUnread ? colors.text : colors.textLight} style={isUnread ? { fontWeight: '700' } : {}}>
             {room.lastMessage || "Start a conversation"}
@@ -224,6 +269,8 @@ const styles = StyleSheet.create({
   roomItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: radius._20, backgroundColor: colors.white, marginBottom: 12, borderWidth: 1, borderColor: colors.backgroundDark, overflow: 'hidden' },
   unreadContainer: { backgroundColor: colors.primary + '08', borderColor: colors.primary + '30' },
   unreadIndicatorBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: colors.primary },
+  deletingItem: { justifyContent: 'center', opacity: 0.5 },
+  deleteHint: { position: 'absolute', top: 8, right: 10, opacity: 0.25 },
   avatarWrapper: { position: 'relative' },
   avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.backgroundDark },
   unreadPulse: { position: 'absolute', right: 0, top: 0, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary, borderWidth: 2, borderColor: 'white' },

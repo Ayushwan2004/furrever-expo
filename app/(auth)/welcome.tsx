@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacingX._20, paddingTop: spacingY._10 },
   guestButton: { paddingVertical: 8, paddingHorizontal: 15, backgroundColor: colors.primarySoft, borderRadius: radius._30 },
   loginButton: { paddingVertical: 8 },
-  welcomeImage: { width: "100%", height: verticalScale(280), alignSelf: "center" },
+  welcomeImage: { width: "100%", height: verticalScale(350), alignSelf: "center" },
   footer: { backgroundColor: colors.white, borderTopLeftRadius: radius._30, borderTopRightRadius: radius._30, paddingTop: verticalScale(30), paddingBottom: verticalScale(45), paddingHorizontal: spacingX._25, gap: spacingY._20, ...Platform.select({ ios: { shadowColor: colors.primary, shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 20 }, android: { elevation: 15 } }) },
   title: { textAlign: 'center', lineHeight: 38 },
   subtextContainer: { gap: 2 },

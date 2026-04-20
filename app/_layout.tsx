@@ -30,7 +30,6 @@ function StackLayout() {
     <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="(auth)" />
         <Stack.Screen
           name="(modals)/applicationsModal"
           options={{ presentation: 'modal' }}

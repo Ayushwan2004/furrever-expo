@@ -66,5 +66,5 @@ export const getPetImage = (file: any) => {
     return { uri: getOptimizedImageUrl(file, 300) }; 
   }
   if (file && file.uri) return { uri: file.uri };
-  return require("../assets/Logo.png");
+  return require("../assets/Logo.jpeg");
 };

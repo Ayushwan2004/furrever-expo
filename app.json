@@ -9,14 +9,15 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.furrever.furreverexpo",
+      "bundleIdentifier": "com.furrever.app",
       "infoPlist": {
         "ITSAppUsesNOnExemptEncryption": false,
         "supportsTablet": true
       }
     },
     "android": {
-      "package": "com.furrever.furreverexpo",
+      "package": "com.furrever.app",
+      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -29,7 +30,6 @@
       "expo-font",
       "expo-web-browser",
       "expo-notifications"
-        
     ],
     "experiments": {
       "typedRoutes": true,
@@ -38,15 +38,15 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "ad7b2d2d-6305-4234-83af-5f751746426c"
+        "projectId": "3a11f411-34fe-4c7b-857b-77fde2de3c16"
       }
     },
-    "owner": "ayushwankhede09",
+    "owner": "furrever",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/ad7b2d2d-6305-4234-83af-5f751746426c"
+      "url": "https://u.expo.dev/3a11f411-34fe-4c7b-857b-77fde2de3c16"
     }
   }
 }

@@ -1,287 +1,349 @@
-/**
- * services/mlService.ts  v5
- */
-
 import * as ImageManipulator from "expo-image-manipulator";
-import { ML_API_BASE_URL, ML_REQUEST_TIMEOUT_MS } from "@/config/mlConfig";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+import {
+  ML_API_BASE_URL,
+  ML_REQUEST_TIMEOUT_MS,
+  ML_HEALTH_TIMEOUT_MS,
+  AI_GENERATED_REJECT_THRESHOLD,
+  ANIMAL_CONFIDENCE_THRESHOLD,
+  BREED_CONFIDENCE_THRESHOLD,
+  TRUST_WEIGHTS,
+  IMAGE_ML_SIZE_PX,
+  IMAGE_ML_QUALITY,
+} from "@/config/mlConfig";
 
-const AI_REJECT_THRESHOLD    = 85;  // reject if AI confidence ≥ 85%
-const BREED_REJECT_THRESHOLD = 85;  // reject if breed confidence < 85%
+export type MLErrorCode =
+  | "NETWORK"
+  | "TIMEOUT"
+  | "SERVER_UNAVAILABLE"
+  | "AI_GENERATED"
+  | "LOW_CONFIDENCE"
+  | "UNSUPPORTED_BREED"
+  | "INVALID_IMAGE"
+  | "BELOW_THRESHOLD"
+  | "UNKNOWN";
 
-// ─── Server response types ────────────────────────────────────────────────────
+export type AnimalType = "cat" | "dog" | "bird" | "rabbit" | "hamster" | "iguana" | "goldfish" | (string & {});
 
-export type AnimalType = "cat" | "dog" | "bird" | "rabbit" | string;
-
-export interface MLSuccessResponse {
-  status:            "success";
-  method:            string;
-  animal:            AnimalType;
-  confidence:        number;
-  breed:             string;
-  breed_confidence:  number | null;
-  trust_score:       number;
-  authenticity:      { label: "real" | "ai"; confidence: number } | null;
-  image_url:         string | null;
-  summary:           string;
+export interface MLRawServerResponse {
+  status: "success";
+  animal: AnimalType;
+  animal_confidence: number;
+  animal_all_scores: Record<string, number>;
+  auth_label: "real" | "ai" | null;
+  auth_confidence: number | null;
+  auth_raw_sigmoid: number | null;
+  breed: string | null;
+  breed_confidence: number | null;
+  breed_all_scores: Record<string, number> | null;
 }
 
-export interface MLRejectedResponse {
-  status:     "rejected";
-  reason:     "ai_generated" | "low_confidence" | "invalid_image";
-  confidence: number;
-  message:    string;
+export interface MLInvalidResponse {
+  status: "rejected";
+  reason: "invalid_image";
+  message: string;
 }
 
-export type MLRawResponse = MLSuccessResponse | MLRejectedResponse;
-
-// ─── UI-facing types ──────────────────────────────────────────────────────────
+export type MLServerResponse = MLRawServerResponse | MLInvalidResponse;
 
 export interface MLScores {
   categoryConfidence: number;
-  breedConfidence:    number | null;
-  authConfidence:     number;
-  trustScore:         number;
+  breedConfidence: number | null;
+  authConfidence: number;
+  trustScore: number;
 }
+
+export type MLSource = "primary";
 
 export interface PetMLFields {
-  category:     string;
-  breed:        string;
+  category: string;
+  breed: string;
   authenticity: "real" | "ai" | null;
-  imageUrl:     string | null;
-  scores:       MLScores;
-  raw:          MLSuccessResponse;
+  scores: MLScores;
+  source: MLSource;
+  raw: MLRawServerResponse;
 }
 
-// ─── Trust score ──────────────────────────────────────────────────────────────
+export class MLError extends Error {
+  public readonly code: MLErrorCode;
+  public readonly confidence: number | undefined;
 
-export const TRUST_FLOOR = 85;
+  constructor(message: string, code: MLErrorCode, confidence?: number) {
+    super(message);
+    this.name = "MLError";
+    this.code = code;
+    this.confidence = confidence;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+const OTHERS_ANIMALS = new Set(["rabbit", "hamster", "iguana", "goldfish"]);
 
 export function computeTrustScore(
-  categoryConf: number,
-  authConf:     number,
-  breedConf:    number | null,
+  animalConf: number,
+  authConf: number,
+  breedConf: number | null
 ): number {
   let raw: number;
+
   if (breedConf !== null) {
-    raw = authConf * 0.40 + categoryConf * 0.35 + breedConf * 0.25;
+    const w = TRUST_WEIGHTS.withBreed;
+    raw = authConf * w.auth + animalConf * w.category + breedConf * w.breed;
   } else {
-    raw = authConf * 0.55 + categoryConf * 0.45;
+    const w = TRUST_WEIGHTS.withoutBreed;
+    raw = authConf * w.auth + animalConf * w.category;
   }
-  if (raw < TRUST_FLOOR) {
-    raw = TRUST_FLOOR + (raw / TRUST_FLOOR) * (100 - TRUST_FLOOR) * 0.35;
-  }
+
   return Math.min(100, Math.round(raw * 10) / 10);
 }
 
-// ─── MLError ──────────────────────────────────────────────────────────────────
-
-export class MLError extends Error {
-  constructor(
-    message: string,
-    public readonly code:
-      | "NETWORK"
-      | "TIMEOUT"
-      | "SERVER_UNAVAILABLE"
-      | "AI_GENERATED"
-      | "LOW_CONFIDENCE"
-      | "LOW_BREED_CONFIDENCE"
-      | "INVALID_IMAGE"
-      | "UNKNOWN",
-    public readonly confidence?: number,
-  ) {
-    super(message);
-    this.name = "MLError";
+function mapCategory(animal: string): string {
+  switch (animal?.toLowerCase()) {
+    case "dog":
+      return "Dogs";
+    case "cat":
+      return "Cats";
+    case "bird":
+      return "Birds";
+    case "rabbit":
+    case "hamster":
+    case "iguana":
+    case "goldfish":
+      return "Others";
+    default:
+      return "Others";
   }
 }
 
-// ─── Client-side rejection logic ──────────────────────────────────────────────
-
-/**
- * Two-stage rejection:
- *  1. If AI confidence ≥ 85% → reject as AI generated
- *  2. If breed confidence < 85% (for dogs/cats) → reject as low breed confidence
- */
-function applyClientRejectionRules(raw: MLSuccessResponse): void {
-  const authConf  = raw.authenticity?.confidence ?? 0;
-  const authLabel = raw.authenticity?.label ?? "real";
-  const breedConf = raw.breed_confidence;
-  const animal    = raw.animal?.toLowerCase();
-
-  // Rule 1: AI generated check
-  if (authLabel === "ai" && authConf >= AI_REJECT_THRESHOLD) {
-    throw new MLError(
-      `This image appears to be AI-generated (${authConf.toFixed(1)}% confidence). ` +
-      "Only real pet photos are accepted.",
-      "AI_GENERATED",
-      authConf,
-    );
+function getOthersBreedName(animal: string): string {
+  switch (animal?.toLowerCase()) {
+    case "rabbit":
+      return "Rabbit";
+    case "hamster":
+      return "Hamster";
+    case "iguana":
+      return "Iguana";
+    case "goldfish":
+      return "Goldfish";
+    default:
+      return "Unknown";
   }
+}
 
-  // Rule 2: Breed confidence check (only for dogs and cats)
-  if (animal === "dog" || animal === "cat") {
-    if (breedConf === null || breedConf < BREED_REJECT_THRESHOLD) {
-      const confStr = breedConf !== null ? `${breedConf.toFixed(1)}%` : "unavailable";
+function humaniseBreed(raw: string | null): string {
+  if (!raw || raw === "Unknown") return "Unknown";
+  return raw
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+function computeAverageConfidence(
+  animalConf: number,
+  authConf: number,
+  breedConf: number | null
+): number {
+  if (breedConf !== null) {
+    return (animalConf + authConf + breedConf) / 3;
+  }
+  return (animalConf + authConf) / 2;
+}
+
+function applyRejectionGates(server: MLRawServerResponse): void {
+  const animal = server.animal?.toLowerCase() ?? "";
+  const animalConf = server.animal_confidence;
+  const breedConf = server.breed_confidence;
+  const rawSigmoid = server.auth_raw_sigmoid;
+
+  const isOthersAnimal = OTHERS_ANIMALS.has(animal);
+  const hasAuth = rawSigmoid !== null && !isOthersAnimal;
+  const hasBreed = breedConf !== null && !isOthersAnimal;
+
+  if (hasAuth) {
+    const sigmoidRejectCutoff = 1 - AI_GENERATED_REJECT_THRESHOLD / 100;
+    if (rawSigmoid! < sigmoidRejectCutoff) {
+      const aiPct = Math.round((1 - rawSigmoid!) * 100 * 10) / 10;
       throw new MLError(
-        `Breed could not be identified with enough confidence (${confStr}). ` +
-        "Please upload a clearer photo where the pet is the main subject.",
-        "LOW_BREED_CONFIDENCE",
-        breedConf ?? 0,
+        `This image appears to be AI-generated (${aiPct}% confidence). Only real pet photos are accepted.`,
+        "AI_GENERATED",
+        aiPct
       );
     }
   }
-}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+  if (animalConf < ANIMAL_CONFIDENCE_THRESHOLD) {
+    throw new MLError(
+      `We couldn't confidently detect a pet in this photo (${animalConf.toFixed(1)}% confidence). Please upload a well-lit photo with your pet as the clear main subject.`,
+      "LOW_CONFIDENCE",
+      animalConf
+    );
+  }
 
-function mapCategory(animal: string): string {
-  switch (animal?.toLowerCase()) {
-    case "dog":    return "Dogs";
-    case "cat":    return "Cats";
-    case "bird":   return "Birds";
-    case "rabbit": return "Others";
-    default:       return "Others";
+  if (hasBreed && breedConf! < BREED_CONFIDENCE_THRESHOLD) {
+    throw new MLError(
+      "We couldn't identify this breed with enough confidence. Try uploading a clearer photo, or check back as we expand our breed library.",
+      "UNSUPPORTED_BREED",
+      breedConf!
+    );
+  }
+
+  const authConfForAverage = isOthersAnimal ? 100 : (server.auth_confidence ?? 100);
+  const breedConfForAverage = isOthersAnimal ? null : breedConf;
+  const avgConfidence = computeAverageConfidence(animalConf, authConfForAverage, breedConfForAverage);
+
+  if (avgConfidence < 85) {
+    throw new MLError(
+      `Photo verification score is too low (${avgConfidence.toFixed(1)}%). Please upload a clearer, well-lit photo of your pet.`,
+      "BELOW_THRESHOLD",
+      avgConfidence
+    );
   }
 }
 
-function humaniseBreed(s: string): string {
-  if (!s || s === "Unknown") return "Unknown";
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
+function buildPetMLFields(server: MLRawServerResponse): PetMLFields {
+  const animal = server.animal?.toLowerCase() ?? "";
+  const animalConf = server.animal_confidence ?? 0;
+  const isOthersAnimal = OTHERS_ANIMALS.has(animal);
 
-function buildPetMLFields(raw: MLSuccessResponse): PetMLFields {
-  const categoryConf = raw.confidence ?? 0;
-  const authConf     = raw.authenticity?.confidence ?? 100;
-  const breedConf    = raw.breed_confidence ?? null;
+  const authConf = isOthersAnimal ? 100 : (server.auth_confidence ?? 100);
+  const breedConf = isOthersAnimal ? null : (server.breed_confidence ?? null);
+  const trustScore = computeTrustScore(animalConf, authConf, breedConf);
 
   const scores: MLScores = {
-    categoryConfidence: Math.round(categoryConf * 10) / 10,
-    breedConfidence:    breedConf !== null ? Math.round(breedConf * 10) / 10 : null,
-    authConfidence:     Math.round(authConf * 10) / 10,
-    trustScore: raw.trust_score ?? computeTrustScore(categoryConf, authConf, breedConf),
+    categoryConfidence: Math.round(animalConf * 10) / 10,
+    breedConfidence: breedConf !== null ? Math.round(breedConf * 10) / 10 : null,
+    authConfidence: Math.round(authConf * 10) / 10,
+    trustScore,
   };
 
+  const breedDisplay = isOthersAnimal
+    ? getOthersBreedName(animal)
+    : humaniseBreed(server.breed);
+
   return {
-    category:     mapCategory(raw.animal),
-    breed:        humaniseBreed(raw.breed),
-    authenticity: raw.authenticity?.label ?? "real",
-    imageUrl:     raw.image_url ?? null,
+    category: mapCategory(animal),
+    breed: breedDisplay,
+    authenticity: server.auth_label ?? null,
     scores,
-    raw,
+    source: "primary",
+    raw: server,
   };
 }
 
-// ─── Fetch with timeout ───────────────────────────────────────────────────────
-
 async function fetchWithTimeout(
-  url:     string,
+  url: string,
   options: RequestInit,
-  ms:      number,
+  ms: number
 ): Promise<Response> {
-  const ctrl  = new AbortController();
+  const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
+
   try {
     return await fetch(url, { ...options, signal: ctrl.signal });
   } catch (err: any) {
     if (err?.name === "AbortError") {
       throw new MLError(
-        `ML server did not respond within ${ms / 1000}s. Please try again.`,
-        "TIMEOUT",
+        `ML server did not respond within ${(ms / 1000).toFixed(0)}s. Please try again.`,
+        "TIMEOUT"
       );
     }
     throw new MLError(
       "Cannot reach the ML server. Check your internet connection.",
-      "NETWORK",
+      "NETWORK"
     );
   } finally {
     clearTimeout(timer);
   }
 }
 
-// ─── Health check ─────────────────────────────────────────────────────────────
+export interface MLHealthResult {
+  ok: boolean;
+  reason?: string;
+}
 
-export async function checkMLHealth(): Promise<{ ok: boolean; reason?: string }> {
+export async function checkMLHealth(): Promise<MLHealthResult> {
   try {
-    const res = await fetchWithTimeout(`${ML_API_BASE_URL}/health`, { method: "GET" }, 5_000);
-    if (!res.ok) return { ok: false, reason: `Server HTTP ${res.status}` };
+    const res = await fetchWithTimeout(
+      `${ML_API_BASE_URL}/health`,
+      { method: "GET" },
+      ML_HEALTH_TIMEOUT_MS
+    );
+
+    if (!res.ok) {
+      return { ok: false, reason: `Server returned HTTP ${res.status}` };
+    }
+
     const data = await res.json();
     if (data.ready === false) {
-      return { ok: false, reason: "Models still loading — please wait and retry." };
+      return {
+        ok: false,
+        reason: "Models are still loading — please wait a moment and retry.",
+      };
     }
+
     return { ok: true };
   } catch (err: any) {
     return { ok: false, reason: err?.message ?? "Server unreachable" };
   }
 }
 
-// ─── Image preparation ────────────────────────────────────────────────────────
-
-export async function prepareImageForML(imageUri: string): Promise<{
-  uri:  string;
+export interface PreparedImage {
+  uri: string;
   name: string;
-  type: string;
-}> {
+  type: "image/jpeg";
+}
+
+export async function prepareImageForML(imageUri: string): Promise<PreparedImage> {
   const result = await ImageManipulator.manipulateAsync(
     imageUri,
-    [{ resize: { width: 224, height: 224 } }],
-    { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG },
+    [{ resize: { width: IMAGE_ML_SIZE_PX, height: IMAGE_ML_SIZE_PX } }],
+    { compress: IMAGE_ML_QUALITY, format: ImageManipulator.SaveFormat.JPEG }
   );
+
   return {
-    uri:  result.uri,
+    uri: result.uri,
     name: `pet_${Date.now()}.jpg`,
     type: "image/jpeg",
   };
 }
 
-// ─── Classify ─────────────────────────────────────────────────────────────────
-
 export async function classifyPetImage(imageUri: string): Promise<PetMLFields> {
-  // 1. Health check
   const health = await checkMLHealth();
   if (!health.ok) {
     throw new MLError(health.reason ?? "ML server unavailable", "SERVER_UNAVAILABLE");
   }
 
-  // 2. Prepare 224×224 JPEG
   const prepared = await prepareImageForML(imageUri);
 
-  // 3. Build form data
   const form = new FormData();
   form.append("file", {
-    uri:  prepared.uri,
+    uri: prepared.uri,
     name: prepared.name,
     type: prepared.type,
   } as any);
 
-  // 4. POST to server
   const res = await fetchWithTimeout(
     `${ML_API_BASE_URL}/predict`,
     { method: "POST", body: form },
-    ML_REQUEST_TIMEOUT_MS,
+    ML_REQUEST_TIMEOUT_MS
   );
 
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail ?? detail; } catch {}
+    try {
+      const body = await res.json();
+      detail = body?.detail ?? body?.message ?? detail;
+    } catch {}
     throw new MLError(detail, "SERVER_UNAVAILABLE");
   }
 
-  // 5. Parse server response
-  const raw: MLRawResponse = await res.json();
+  const server: MLServerResponse = await res.json();
 
-  // 6. Handle server-side rejections
-  if (raw.status === "rejected") {
-    switch (raw.reason) {
-      case "ai_generated":  throw new MLError(raw.message, "AI_GENERATED",  raw.confidence);
-      case "invalid_image": throw new MLError(raw.message, "INVALID_IMAGE", 0);
-      default:              throw new MLError(raw.message, "LOW_CONFIDENCE", raw.confidence);
-    }
+  if (server.status === "rejected") {
+    throw new MLError(server.message, "INVALID_IMAGE", 0);
   }
 
-  // 7. Apply client-side rejection rules (AI ≥ 85% or breed < 85%)
-  applyClientRejectionRules(raw);
+  applyRejectionGates(server);
 
-  // 8. Build and return
-  return buildPetMLFields(raw);
+  return buildPetMLFields(server);
 }

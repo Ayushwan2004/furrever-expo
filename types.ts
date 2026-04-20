@@ -215,6 +215,7 @@ export type ChatContextType = {
   loadingRooms: boolean;
   getOrCreateChatRoom: (targetUserId: string, targetName: string, targetImage: string) => Promise<string | null>;
   markAsRead: (roomId: string) => Promise<void>;
+  deleteRoom: (roomId: string) => Promise<void>;
 };
 
 /** --- UTILITY & HELPER TYPES --- **/
