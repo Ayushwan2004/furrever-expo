@@ -1,241 +1,200 @@
 // contexts/NotificationContext.tsx
 import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useCallback,
+  createContext, useContext, useEffect,
+  useRef, useCallback, useState,
 } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  orderBy,
-  limit,
-  doc,
-  updateDoc,
+  collection, query, where, onSnapshot,
+  orderBy, limit, doc, updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { firestore } from '@/config/firebase';
 import { useAuth } from './AuthContext';
 
-// ─── How long to remember a shown notification ID (7 days) ────────────────────
 const SHOWN_IDS_KEY = '@furrever_shown_notif_ids';
 const SHOWN_IDS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-// ─── Notification age limit: ignore anything older than 5 minutes ─────────────
-const MAX_AGE_MS = 5 * 60 * 1000;
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 type ShownEntry = { ts: number };
 type ShownMap = Record<string, ShownEntry>;
 
-type NotificationContextType = {
-  showLocalNotification: (title: string, message: string) => void;
+export type AppNotification = {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt: Date;
+  data?: Record<string, any>;
 };
 
-const NotificationContext = createContext<NotificationContextType | undefined>(
-  undefined
-);
+type NotificationContextType = {
+  notifications: AppNotification[];
+  unreadCount: number;
+  showLocalNotification: (title: string, message: string) => void;
+  markAllRead: () => Promise<void>;
+  markOneRead: (id: string) => Promise<void>;
+  clearAll: () => void;
+};
 
-export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const shownMap = useRef<ShownMap>({});
   const shownMapLoaded = useRef(false);
 
-  // ── Load persisted shown IDs from AsyncStorage once ──────────────────────────
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
   useEffect(() => {
-    AsyncStorage.getItem(SHOWN_IDS_KEY)
-      .then((raw) => {
-        if (!raw) return;
-        try {
-          const parsed: ShownMap = JSON.parse(raw);
-          const now = Date.now();
-          // Prune expired entries to keep storage small
-          const pruned: ShownMap = {};
-          for (const [id, entry] of Object.entries(parsed)) {
-            if (now - entry.ts < SHOWN_IDS_TTL_MS) pruned[id] = entry;
-          }
-          shownMap.current = pruned;
-        } catch {
-          // corrupted storage — start fresh
-        }
-      })
-      .catch(() => { })
-      .finally(() => {
-        shownMapLoaded.current = true;
-      });
-  }, []);
-
-  // ── Persist shownMap to AsyncStorage ─────────────────────────────────────────
-  const persistShownMap = useCallback(() => {
-    AsyncStorage.setItem(SHOWN_IDS_KEY, JSON.stringify(shownMap.current)).catch(
-      () => { }
-    );
-  }, []);
-
-  // ── Check if a notification ID has already been shown ────────────────────────
-  const hasBeenShown = useCallback((id: string): boolean => {
-    return !!shownMap.current[id];
-  }, []);
-
-  // ── Mark a notification ID as shown ──────────────────────────────────────────
-  const markShown = useCallback(
-    (id: string) => {
-      shownMap.current[id] = { ts: Date.now() };
-      persistShownMap();
-    },
-    [persistShownMap]
-  );
-
-  // ── Trigger a real device notification ───────────────────────────────────────
-  const triggerDeviceNotification = useCallback(
-    async (
-      title: string,
-      body: string,
-      data: Record<string, any> = {}
-    ) => {
+    AsyncStorage.getItem(SHOWN_IDS_KEY).then((raw) => {
+      if (!raw) return;
       try {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title,
-            body,
-            data,
-            sound: 'notification_sound.wav',
-            badge: 1,
-            ...(Platform.OS === 'android' ? { channelId: 'furrever' } : {}),
-          },
-          trigger: null, // show immediately
-        });
-      } catch {
-        // silent — notification failure should never crash the app
-      }
-    },
-    []
-  );
-
-  // ── Process incoming Firestore notification docs ──────────────────────────────
-  const handleDocs = useCallback(
-    (docs: any[], isBroadcast: boolean) => {
-      // Wait until AsyncStorage has loaded before processing
-      // so we don't re-show notifications the user already saw
-      if (!shownMapLoaded.current) return;
-
-      const now = Date.now();
-
-      docs.forEach((docSnap) => {
-        const data = docSnap.data();
-        const id = docSnap.id;
-
-        // Skip if already shown (persisted across sessions)
-        if (hasBeenShown(id)) return;
-
-        // Skip notifications older than MAX_AGE_MS — these are "stale"
-        // notifications that would otherwise replay every time the user logs in
-        const createdAt = data.createdAt?.toDate?.();
-        if (createdAt && now - createdAt.getTime() > MAX_AGE_MS) {
-          // Mark as read in Firestore so it stops appearing in the query
-          if (!isBroadcast) {
-            updateDoc(doc(firestore, 'notifications', id), {
-              isRead: true,
-            }).catch(() => { });
-          }
-          // Also mark locally so we never process it again this session
-          markShown(id);
-          return;
+        const parsed: ShownMap = JSON.parse(raw);
+        const now = Date.now();
+        const pruned: ShownMap = {};
+        for (const [id, entry] of Object.entries(parsed)) {
+          if (now - entry.ts < SHOWN_IDS_TTL_MS) pruned[id] = entry;
         }
+        shownMap.current = pruned;
+      } catch { }
+    }).finally(() => { shownMapLoaded.current = true; });
+  }, []);
 
-        // Mark shown BEFORE triggering — prevents a race condition where
-        // a Firestore snapshot fires twice before the first async write completes
-        markShown(id);
+  const persistShownMap = useCallback(() => {
+    AsyncStorage.setItem(SHOWN_IDS_KEY, JSON.stringify(shownMap.current)).catch(() => { });
+  }, []);
 
-        // Show real device notification
-        triggerDeviceNotification(data.title, data.message, {
-          type: data.type || 'general',
-          notifId: id,
-        });
+  const hasBeenShown = useCallback((id: string) => !!shownMap.current[id], []);
+  const markShown = useCallback((id: string) => {
+    shownMap.current[id] = { ts: Date.now() };
+    persistShownMap();
+  }, [persistShownMap]);
 
-        // Mark targeted notifications as read in Firestore
-        if (!isBroadcast) {
-          updateDoc(doc(firestore, 'notifications', id), {
-            isRead: true,
-          }).catch(() => { });
-        }
+  const triggerDeviceNotification = useCallback(async (
+    title: string, body: string, data: Record<string, any> = {}
+  ) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title, body, data,
+          sound: 'notification_sound.wav',
+          badge: 1,
+          ...(Platform.OS === 'android' ? { channelId: 'furrever' } : {}),
+        },
+        trigger: null,
       });
-    },
-    [hasBeenShown, markShown, triggerDeviceNotification]
-  );
+    } catch { }
+  }, []);
 
-  // ── Firestore listeners ───────────────────────────────────────────────────────
+  // ── Merge incoming Firestore docs into state ──────────────────────────────
+  const mergeDocs = useCallback((docs: any[], isBroadcast: boolean) => {
+    if (!shownMapLoaded.current) return;
+    const now = Date.now();
+
+    const incoming: AppNotification[] = docs.map(docSnap => {
+      const d = docSnap.data();
+      const createdAt = d.createdAt?.toDate?.() ?? new Date();
+      return {
+        id: docSnap.id,
+        title: d.title,
+        message: d.message,
+        type: d.type || 'general',
+        isRead: d.isRead ?? false,
+        createdAt,
+        data: d.data,
+      };
+    });
+
+    setNotifications(prev => {
+      const map = new Map(prev.map(n => [n.id, n]));
+      incoming.forEach(n => map.set(n.id, n));
+      return Array.from(map.values()).sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+      );
+    });
+
+    // Trigger device notifications for fresh unread ones
+    incoming.forEach(n => {
+      if (hasBeenShown(n.id)) return;
+      if (now - n.createdAt.getTime() > MAX_AGE_MS) {
+        markShown(n.id);
+        return;
+      }
+      markShown(n.id);
+      triggerDeviceNotification(n.title, n.message, { type: n.type, notifId: n.id });
+      if (!isBroadcast) {
+        updateDoc(doc(firestore, 'notifications', n.id), { isRead: true }).catch(() => { });
+      }
+    });
+  }, [hasBeenShown, markShown, triggerDeviceNotification]);
+
+  // ── Firestore listeners ───────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.uid) return;
 
-    // Listener 1: notifications targeted at this user
     const unsubUser = onSnapshot(
       query(
         collection(firestore, 'notifications'),
         where('receiverId', '==', user.uid),
-        where('isRead', '==', false),
         orderBy('createdAt', 'desc'),
-        limit(5)
+        limit(20)
       ),
-      (snap) => handleDocs(snap.docs, false),
-      () => { } // silent error — Firestore offline
+      snap => mergeDocs(snap.docs, false),
+      () => { }
     );
 
-    // Listener 2: broadcast notifications (ALL users)
     const unsubAll = onSnapshot(
       query(
         collection(firestore, 'notifications'),
         where('receiverId', '==', 'ALL'),
-        where('isRead', '==', false),
         orderBy('createdAt', 'desc'),
-        limit(3)
+        limit(10)
       ),
-      (snap) => handleDocs(snap.docs, true),
-      () => { } // silent error — Firestore offline
+      snap => mergeDocs(snap.docs, true),
+      () => { }
     );
 
-    return () => {
-      unsubUser();
-      unsubAll();
-    };
-  }, [user?.uid, handleDocs]);
+    return () => { unsubUser(); unsubAll(); };
+  }, [user?.uid, mergeDocs]);
 
-  useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response.notification.request.content.data as any;
-        // Add navigation here based on data.type if needed
-        // e.g. if (data.type === 'chat') router.push(...)
-      }
-    );
-    return () => sub.remove();
+  // ── Mark all read ─────────────────────────────────────────────────────────
+  const markAllRead = useCallback(async () => {
+    const unread = notifications.filter(n => !n.isRead && n.data?.receiverId !== 'ALL');
+    if (!unread.length) return;
+    const batch = writeBatch(firestore);
+    unread.forEach(n => batch.update(doc(firestore, 'notifications', n.id), { isRead: true }));
+    await batch.commit();
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  }, [notifications]);
+
+  // ── Mark one read ─────────────────────────────────────────────────────────
+  const markOneRead = useCallback(async (id: string) => {
+    await updateDoc(doc(firestore, 'notifications', id), { isRead: true }).catch(() => { });
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
   }, []);
 
-  // ── Public API ────────────────────────────────────────────────────────────────
-  const showLocalNotification = useCallback(
-    (title: string, message: string) => {
-      triggerDeviceNotification(title, message, { type: 'local' });
-    },
-    [triggerDeviceNotification]
-  );
+  const clearAll = useCallback(() => setNotifications([]), []);
+
+  const showLocalNotification = useCallback((title: string, message: string) => {
+    triggerDeviceNotification(title, message, { type: 'local' });
+  }, [triggerDeviceNotification]);
 
   return (
-    <NotificationContext.Provider value={{ showLocalNotification }}>
+    <NotificationContext.Provider value={{
+      notifications, unreadCount,
+      showLocalNotification, markAllRead, markOneRead, clearAll,
+    }}>
       {children}
     </NotificationContext.Provider>
   );
 };
 
 export const useNotification = () => {
-  const context = useContext(NotificationContext);
-  if (!context)
-    throw new Error('useNotification must be used within NotificationProvider');
-  return context;
+  const ctx = useContext(NotificationContext);
+  if (!ctx) throw new Error('useNotification must be used within NotificationProvider');
+  return ctx;
 };

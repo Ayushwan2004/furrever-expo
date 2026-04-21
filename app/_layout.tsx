@@ -11,6 +11,7 @@ import { ChatProvider } from '@/contexts/chatContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import VerificationGateway from '@/app/(modals)/verificationGateway';
 import TerminatedOverlay from '@/components/TerminatedOverlay';
+// import NotificationBell from '@/components/NotificationBell';
 
 SplashScreen.preventAutoHideAsync();
 

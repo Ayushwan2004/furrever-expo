@@ -46,6 +46,6 @@ app-example
 .vscode/
 .expo/
 
-# Firebase
-google-services.json
-GoogleService-Info.plist
+# # Firebase
+# google-services.json
+# GoogleService-Info.plist

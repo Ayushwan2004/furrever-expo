@@ -16,7 +16,6 @@ export const getOptimizedImageUrl = (url: string, width: number = 300): string =
     
     return url.replace('/upload/', `/upload/${transformation}/`);
   }
-
   return url;
 };
 

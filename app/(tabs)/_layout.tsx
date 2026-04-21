@@ -1,6 +1,8 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import CustomTabs from "@/components/CustomTabs";
+import NotificationBell from '@/components/NotificationBell';
+
 
 export default function _layout() {
   return (
