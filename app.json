@@ -4,7 +4,7 @@
     "slug": "furrever",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "assets/Logo.jpeg",
+    "icon": "./assets/Logo.jpeg",
     "scheme": "furreverexpo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -15,21 +15,36 @@
         "supportsTablet": true
       }
     },
+    "splash": {
+      "image": "./assets/Logo.jpeg",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "android": {
       "package": "com.furrever.app",
       "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/Logo.jpeg",
+        "backgroundColor": "#ffffff"
+      },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "output": "static",
-      "favicon": ""
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["RECEIVE_BOOT_COMPLETED", "VIBRATE", "POST_NOTIFICATIONS"]
     },
     "plugins": [
+      "./plugins/withAndroidManifest",
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notificationIcon.png",
+          "color": "#F4A900",
+          "sounds": ["./assets/sounds/notifications.wav"],
+          "mode": "production"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -38,15 +53,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "3a11f411-34fe-4c7b-857b-77fde2de3c16"
+        "projectId": "b0a519bf-7c57-4df8-bb0d-c5e6fef3e107"
       }
     },
-    "owner": "furrever",
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "updates": {
-      "url": "https://u.expo.dev/3a11f411-34fe-4c7b-857b-77fde2de3c16"
-    }
+    "owner": "furreversupport"
   }
 }
