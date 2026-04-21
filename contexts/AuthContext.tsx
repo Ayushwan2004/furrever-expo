@@ -32,8 +32,6 @@ import { registerPushToken } from "@/services/pushTokenService";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
 const isOfflineError = (error: any): boolean => {
   const msg: string = error?.message ?? "";
   const code: string = error?.code ?? "";
@@ -45,16 +43,6 @@ const isOfflineError = (error: any): boolean => {
   );
 };
 
-/**
- * Checks Firestore "users" collection to see if an email is registered.
- * More reliable than fetchSignInMethodsForEmail which breaks when Firebase
- * email enumeration protection is enabled (the new default).
- *
- * Returns:
- *   "exists"    — email is in Firestore → wrong password was the issue
- *   "not-found" — email not in Firestore → account doesn't exist
- *   "unknown"   — Firestore call failed (offline etc.) → can't determine
- */
 const checkEmailExists = async (
   email: string
 ): Promise<"exists" | "not-found" | "unknown"> => {
@@ -70,13 +58,10 @@ const checkEmailExists = async (
   }
 };
 
-// ─── provider ─────────────────────────────────────────────────────────────────
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserType | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [terminatedOnLogin, setTerminatedOnLogin] = useState(false);
-
   const router = useRouter();
   const segments = useSegments();
   const unsubscribeFirestoreRef = useRef<Unsubscribe | null>(null);
@@ -89,14 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const tryReconnect = () => {
-    enableNetwork(firestore).catch(() => {});
+    enableNetwork(firestore).catch(() => { });
   };
 
-  // ── fetch / subscribe to user doc ─────────────────────────────────────────
   const fetchUserData = (uid: string) => {
     const userDocRef = doc(firestore, "users", uid);
     if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
-
     unsubscribeFirestoreRef.current = onSnapshot(
       userDocRef,
       (docSnap) => {
@@ -135,15 +118,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         fetchUserData(firebaseUser.uid);
-        if (
-          firebaseUser.emailVerified &&
-          tokenRegistered.current !== firebaseUser.uid
-        ) {
-          tokenRegistered.current = firebaseUser.uid;
+        // ✅ Always refresh token on every auth state change
+        if (firebaseUser.emailVerified) {
           registerPushToken(firebaseUser.uid).catch((e) => {
             if (!isOfflineError(e))
               console.warn("[Auth] registerPushToken failed:", e?.message);
           });
+          tokenRegistered.current = firebaseUser.uid;
         }
       } else {
         if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
@@ -154,7 +135,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     });
-
     return () => {
       unsubscribeAuth();
       if (unsubscribeFirestoreRef.current) unsubscribeFirestoreRef.current();
@@ -170,7 +150,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user?.emailVerified, initialized]);
 
-  // ── helpers ───────────────────────────────────────────────────────────────
   const updateLocalAndRemote = async (
     field: string,
     value: any,
@@ -194,7 +173,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const wasVerified = user?.emailVerified;
     await auth.currentUser.reload();
     const isNowVerified = !!auth.currentUser.emailVerified;
-
     if (isNowVerified && !wasVerified) {
       const userRef = doc(firestore, "users", auth.currentUser.uid);
       try {
@@ -215,11 +193,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           await updateDoc(userRef, { emailVerified: true });
         }
-
-        if (
-          isMounted.current &&
-          tokenRegistered.current !== auth.currentUser.uid
-        ) {
+        // ✅ Always register token on verification
+        if (isMounted.current) {
           tokenRegistered.current = auth.currentUser.uid;
           registerPushToken(auth.currentUser.uid).catch((e) => {
             if (!isOfflineError(e))
@@ -230,7 +205,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!isOfflineError(e)) console.error("[Auth] reloadUser error:", e);
       }
     }
-
     if (isMounted.current && isNowVerified !== wasVerified) {
       setUser((prev) => (prev ? { ...prev, emailVerified: isNowVerified } : null));
     }
@@ -242,6 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await updateDoc(doc(firestore, "users", auth.currentUser.uid), {
           expoPushToken: null,
+          fcmToken: null,
         });
       } catch {
         // best effort
@@ -264,7 +239,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  // ── context value ─────────────────────────────────────────────────────────
   const contextValue: AuthContextType = useMemo(
     () => ({
       user,
@@ -272,15 +246,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       initialized,
       terminatedOnLogin,
       clearTerminatedOnLogin: () => setTerminatedOnLogin(false),
-
-      // ── LOGIN ──────────────────────────────────────────────────────────────
       login: async (e, p) => {
         const trimmedEmail = e.trim().toLowerCase();
-
         try {
           const cred = await signInWithEmailAndPassword(auth, trimmedEmail, p);
-
-          // ── Terminated account check ────────────────────────────────────
           try {
             const userSnap = await getDoc(doc(firestore, "users", cred.user.uid));
             if (userSnap.exists() && userSnap.data().adminStatus === "terminated") {
@@ -289,63 +258,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return { success: false, msg: "account-terminated" };
             }
           } catch (firestoreErr: any) {
-            // Offline — let the user in, Firestore syncs when reconnected
             if (!isOfflineError(firestoreErr)) throw firestoreErr;
           }
-
-          // ── Unverified email check ────────────────────────────────────────
           if (!cred.user.emailVerified) {
-            // VerificationGateway Modal in _layout.tsx watches
-            // `!!user && !user.emailVerified` and shows automatically.
             return { success: false, msg: "email-not-verified" };
           }
-
           return { success: true };
-
         } catch (err: any) {
           const code: string = err.code ?? "";
-
-          
           if (
             code === "auth/wrong-password" ||
             code === "auth/invalid-credential" ||
             code === "auth/user-not-found"
           ) {
             const emailStatus = await checkEmailExists(trimmedEmail);
-
             if (emailStatus === "not-found") {
-              // Email is not in our system — account doesn't exist
               showNoAccountAlert();
               return { success: false, msg: "user-not-found" };
             }
-
             if (emailStatus === "exists") {
-              // Email exists in our system → password was wrong
               return { success: false, msg: "wrong-password" };
             }
-
-            // emailStatus === "unknown" (Firestore offline during check)
-            // Can't distinguish — show a generic credential error
             return { success: false, msg: "wrong-password" };
           }
-
           if (code === "auth/invalid-email") {
             return { success: false, msg: "invalid-email" };
           }
-
           if (code === "auth/too-many-requests") {
             return { success: false, msg: "too-many-requests" };
           }
-
           if (isOfflineError(err)) {
             return { success: false, msg: "offline" };
           }
-
           return { success: false, msg: code };
         }
       },
-
-      // ── REGISTER ──────────────────────────────────────────────────────────
       register: async (email, password, name) => {
         try {
           const res = await createUserWithEmailAndPassword(
@@ -371,10 +318,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { success: false, msg: err.code };
         }
       },
-
       logout,
       reloadUser,
-
       sendVerification: async () => {
         if (auth.currentUser) {
           await sendEmailVerification(auth.currentUser);
@@ -382,7 +327,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return { success: false };
       },
-
       resetPassword: async (email) => {
         const trimmedEmail = email.trim().toLowerCase();
         try {
@@ -402,8 +346,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { success: false, msg: "error" };
         }
       },
-
-      updateUserData: async () => {},
+      updateUserData: async () => { },
       promoteToSeller: async () => updateLocalAndRemote("role", "seller"),
       addPetPostId: async (uid, petId) =>
         updateLocalAndRemote("petPostIds", petId, true, "union"),

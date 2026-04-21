@@ -26,17 +26,17 @@ import {
   Palette, PawPrint, Phone, SealCheck, SealWarning,
   Trash, Warning, XCircle,
 } from 'phosphor-react-native';
-import BackButton    from '@/components/BackButton';
-import Button        from '@/components/Button';
-import Header        from '@/components/Header';
+import BackButton from '@/components/BackButton';
+import Button from '@/components/Button';
+import Header from '@/components/Header';
 import ScreenWrapper from '@/components/ScreenWrapper';
-import Typo          from '@/components/Typo';
+import Typo from '@/components/Typo';
 import { firestore } from '@/config/firebase';
 import { colors, radius, spacingX, spacingY } from '@/constants/themes';
 import { useAdoption } from '@/contexts/AdoptionContext';
-import { useAuth }     from '@/contexts/AuthContext';
-import { useChat }     from '@/contexts/chatContext';
-import { usePets }     from '@/contexts/PetContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useChat } from '@/contexts/chatContext';
+import { usePets } from '@/contexts/PetContext';
 import { getPetImage } from '@/services/imageService';
 import { PetType, UserType } from '@/types';
 import { getTimeElapsed } from '@/utils/date';
@@ -89,20 +89,20 @@ const PetDetailsModal = () => {
   const { sendApplication, cancelApplication, loading: adoptionLoading, applications } = useAdoption();
   const { getOrCreateChatRoom } = useChat();
   const { user: currentUser } = useAuth();
-  const router   = useRouter();
-  const isBusy   = useRef(false);
+  const router = useRouter();
+  const isBusy = useRef(false);
 
   const pet = useMemo(
     () => pets.find((p) => p.id === id) as PetType | undefined,
     [pets, id],
   );
 
-  const [ownerData,    setOwnerData   ] = useState<UserType | null>(null);
-  const [adopterData,  setAdopterData ] = useState<UserType | null>(null);
+  const [ownerData, setOwnerData] = useState<UserType | null>(null);
+  const [adopterData, setAdopterData] = useState<UserType | null>(null);
   const [fetchingData, setFetchingData] = useState(true);
 
-  const isSold   = pet?.status === 'sold';
-  const isOwner  = pet?.ownerId === currentUser?.uid;
+  const isSold = pet?.status === 'sold';
+  const isOwner = pet?.ownerId === currentUser?.uid;
 
   const userApplication = useMemo(
     () => applications.find(a => a.petId === pet?.id && a.adopterId === currentUser?.uid),
@@ -118,15 +118,15 @@ const PetDetailsModal = () => {
     const unsubOwner = onSnapshot(
       doc(firestore, "users", pet.ownerId),
       (snap) => { if (snap.exists()) setOwnerData(snap.data() as UserType); setFetchingData(false); },
-      (err)  => { if (err.code !== 'permission-denied') console.warn("Owner Fetch Error:", err); setFetchingData(false); },
+      (err) => { if (err.code !== 'permission-denied') console.warn("Owner Fetch Error:", err); setFetchingData(false); },
     );
 
-    let unsubAdopter = () => {};
+    let unsubAdopter = () => { };
     if (isSold && pet?.adoptedBy) {
       unsubAdopter = onSnapshot(
         doc(firestore, "users", pet.adoptedBy),
         (snap) => { if (snap.exists()) setAdopterData(snap.data() as UserType); },
-        (err)  => { if (err.code !== 'permission-denied') console.warn("Adopter Fetch Error:", err); },
+        (err) => { if (err.code !== 'permission-denied') console.warn("Adopter Fetch Error:", err); },
       );
     }
 
@@ -144,17 +144,29 @@ const PetDetailsModal = () => {
 
   const handleAdopt = useCallback(async () => {
     if (isBusy.current || !pet) return;
-    if (!currentUser) { handleThrottledAction(() => router.push("/(auth)/login")); return; }
-    isBusy.current = true;
-    const res = await sendApplication(pet);
-    if (res.success) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Adoption Request Sent! 🐾", "The owner has been notified. Please wait for their response.", [{ text: "OK" }]);
-    } else {
-      Alert.alert("Hold on", res.msg || "Something went wrong.");
+    if (!currentUser) {
+      handleThrottledAction(() => router.push("/(auth)/login"));
+      return;
     }
-    setTimeout(() => { isBusy.current = false; }, 1000);
-  }, [currentUser, pet, sendApplication, router]);
+    isBusy.current = true;
+    try {
+      const res = await sendApplication(pet);
+      if (res?.success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          "Adoption Request Sent! 🐾",
+          "The owner has been notified. Please wait for their response.",
+          [{ text: "OK" }]
+        );
+      } else {
+        Alert.alert("Hold on", res?.msg || "Something went wrong.");
+      }
+    } catch (error: any) {
+      Alert.alert("Hold on", error?.message || "Something went wrong.");
+    } finally {
+      setTimeout(() => { isBusy.current = false; }, 1000);
+    }
+  }, [currentUser, pet, sendApplication, router, handleThrottledAction]);
 
   const handleCancelRequest = useCallback(() => {
     if (!userApplication) return;
@@ -427,31 +439,31 @@ const PetDetailsModal = () => {
 export default React.memo(PetDetailsModal);
 
 const styles = StyleSheet.create({
-  container:       { flex: 1, backgroundColor: colors.background },
-  centered:        { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: colors.background },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerContainer: { paddingHorizontal: spacingX._15, paddingBottom: spacingY._10 },
-  scrollContent:   { paddingBottom: verticalScale(140) },
+  scrollContent: { paddingBottom: verticalScale(140) },
 
   // Image
   imageContainer: { marginHorizontal: spacingX._20, borderRadius: radius._20, overflow: 'hidden', borderWidth: 1, borderColor: colors.backgroundDark },
-  mainImage:      { width: '100%', height: verticalScale(350) },
-  soldBadge:      { position: 'absolute', top: 15, left: 15, backgroundColor: colors.green, paddingHorizontal: 15, paddingVertical: 8, borderRadius: radius._12, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mainImage: { width: '100%', height: verticalScale(350) },
+  soldBadge: { position: 'absolute', top: 15, left: 15, backgroundColor: colors.green, paddingHorizontal: 15, paddingVertical: 8, borderRadius: radius._12, flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   // Content
-  content:  { padding: spacingX._20 },
-  topMeta:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  content: { padding: spacingX._20 },
+  topMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
 
   certifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.green + '15', paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius._10 },
-  certifiedText:  { color: colors.green, fontSize: 11, fontWeight: '700' },
+  certifiedText: { color: colors.green, fontSize: 11, fontWeight: '700' },
 
-  titleRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
   addressText: { fontSize: 14, color: colors.primary, textDecorationLine: 'underline', fontWeight: '600' },
   categoryBox: { backgroundColor: colors.primarySoft, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius._10 },
 
   // Grid — each card gets equal width; text wraps or shrinks inside
-  grid:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, gap: 8 },
-  gridItem:  {
+  grid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, gap: 8 },
+  gridItem: {
     flex: 1,
     backgroundColor: colors.white,
     paddingVertical: 16,
@@ -506,13 +518,13 @@ const styles = StyleSheet.create({
 
   // Owner section
   ownerSection: { marginTop: 15 },
-  ownerCard:    { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, padding: 15, borderRadius: radius._20, borderWidth: 1, borderColor: colors.backgroundDark },
-  ownerAvatar:  { width: 54, height: 54, borderRadius: 27 },
+  ownerCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, padding: 15, borderRadius: radius._20, borderWidth: 1, borderColor: colors.backgroundDark },
+  ownerAvatar: { width: 54, height: 54, borderRadius: 27 },
   ownerDetails: { flex: 1, marginLeft: 15 },
-  roleBadge:    { alignSelf: 'flex-start', backgroundColor: colors.primarySoft, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4 },
+  roleBadge: { alignSelf: 'flex-start', backgroundColor: colors.primarySoft, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4 },
   ownerActions: { flexDirection: 'row', gap: 8 },
   ownerActionBtn: { backgroundColor: colors.primarySoft, padding: 10, borderRadius: 14 },
-  ownerCallBtn:   { backgroundColor: colors.green + '15' },
+  ownerCallBtn: { backgroundColor: colors.green + '15' },
 
   // Footer
   footer: {
@@ -525,15 +537,15 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: colors.backgroundDark,
     paddingVertical: 10,
   },
-  adoptBtn:    { width: '100%', height: verticalScale(56), borderRadius: radius._17, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.green, flexDirection: 'row', gap: 10 },
-  resendBtn:   { width: '100%', height: verticalScale(48), borderRadius: radius._15, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.text, flexDirection: 'row', gap: 8 },
-  statusButton:  { width: '100%', height: verticalScale(56), borderRadius: radius._17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  cancelBtn:     { backgroundColor: colors.red + '10', borderWidth: 1, borderColor: colors.red },
+  adoptBtn: { width: '100%', height: verticalScale(56), borderRadius: radius._17, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.green, flexDirection: 'row', gap: 10 },
+  resendBtn: { width: '100%', height: verticalScale(48), borderRadius: radius._15, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.text, flexDirection: 'row', gap: 8 },
+  statusButton: { width: '100%', height: verticalScale(56), borderRadius: radius._17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  cancelBtn: { backgroundColor: colors.red + '10', borderWidth: 1, borderColor: colors.red },
   rejectedBadge: { backgroundColor: colors.red + '15', borderWidth: 1, borderColor: colors.red, height: verticalScale(48) },
   ownerListingInfo: { width: '100%', height: verticalScale(56), backgroundColor: colors.primarySoft, borderRadius: radius._17, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   unavailableFooter: { width: '100%', height: verticalScale(56), backgroundColor: colors.backgroundDark, borderRadius: radius._17, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
-  adopterPillCard:     { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, padding: 10, borderRadius: radius._20, borderWidth: 1, borderColor: colors.backgroundDark, gap: 12 },
-  adopterAvatarWrapper:{ position: 'relative' },
-  adopterAvatar:       { width: 40, height: 40, borderRadius: 20 },
-  checkBadge:          { position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.green, borderRadius: 10, padding: 2, borderWidth: 2, borderColor: 'white' },
+  adopterPillCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, padding: 10, borderRadius: radius._20, borderWidth: 1, borderColor: colors.backgroundDark, gap: 12 },
+  adopterAvatarWrapper: { position: 'relative' },
+  adopterAvatar: { width: 40, height: 40, borderRadius: 20 },
+  checkBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.green, borderRadius: 10, padding: 2, borderWidth: 2, borderColor: 'white' },
 });

@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "450691309926",
+    "project_id": "furrever-expo",
+    "storage_bucket": "furrever-expo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:450691309926:android:460c43d9fbfdf8808ee8a7",
+        "android_client_info": {
+          "package_name": "com.furrever.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "450691309926-1nl563qi9v44inmmnt1k7r2sj4ff6clo.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.furrever.app",
+            "certificate_hash": "41ef2310a089e6e9073432723087be4a620e0a7e"
+          }
+        },
+        {
+          "client_id": "450691309926-2sol8u95ma773obdj9ijkm41pcb6atlc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.furrever.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "450691309926-2cc25c8ssrchv1pv6icapa57ml0nviqi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAa-zFR0Wm3U_wjbTNFeAjNOryVcci43ss"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "450691309926-2cc25c8ssrchv1pv6icapa57ml0nviqi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
